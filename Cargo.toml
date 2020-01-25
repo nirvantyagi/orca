@@ -6,3 +6,5 @@ edition = "2018"
 
 [dependencies]
 algebra = { git = "https://github.com/scipr-lab/zexe/"}
+digest = "0.8.1"
+rand = "0.7.3"

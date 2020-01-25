@@ -1,8 +1,9 @@
 use algebra::curves::PairingEngine;
 
 use rand;
+use std::marker::PhantomData;
 
-pub struct GroupSig<E: PairingEngine>();
+pub struct GroupSig<E: PairingEngine>(PhantomData<E>);
 
 pub struct PublicParams<E: PairingEngine> {
     g1: E::G1Projective,
@@ -12,6 +13,7 @@ pub struct PublicParams<E: PairingEngine> {
 
 // Public and private key pair for group manager
 pub struct GmPubKey<E: PairingEngine> {
+    CX0: E::G1Projective,
     X1: E::G1Projective,
 }
 
@@ -35,18 +37,19 @@ impl<E: PairingEngine> GroupSig<E> {
         let gen1 = E::G1Projective::prime_subgroup_generator();
         let gen2 = E::G2Projective::prime_subgroup_generator();
         PublicParams {
-            g1: rand::random(),
-            h1: rand::random(),
-            g2: rand::random(),
+            g1: gen1.mul(&rand::random()),
+            h1: gen1.mul(&rand::random()),
+            g2: gen2.mul(rand::random()),
         }
     }
 
-    pub fn gm_keygen(pp: PublicParams<E>) -> (GmPubKey<E>, GmPrivKey<E>) {
+    pub fn gm_keygen(pp: &PublicParams<E>) -> (GmPubKey<E>, GmPrivKey<E>) {
         let sk = GmPrivKey {
             x0: rand::random(),
             x1: rand::random(),
         };
         let pk = GmPubKey {
+            CX0: pp.h1.mul(&sk.x1),
             X1: pp.h1.mul(&sk.x1),
         };
         (pk, sk)

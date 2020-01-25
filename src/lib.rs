@@ -1,5 +1,7 @@
 mod algmac;
-pub mod groupsig;
+//pub mod groupsig;
+
+pub type Error = Box<dyn std::error::Error>;
 
 #[cfg(test)]
 mod tests {
