@@ -1,13 +1,13 @@
+use crate::Error;
 use algebra::{
     bytes::ToBytes,
+    fields::PrimeField,
     groups::Group,
     to_bytes, UniformRand,
 };
-
 use digest::Digest;
 use rand::Rng;
 use std::{
-    error::Error,
     hash::Hash,
     io::{Result as IoResult, Write},
     marker::PhantomData,
@@ -64,7 +64,10 @@ impl<G: Group> ToBytes for Mac<G> {
 }
 
 pub struct MacProof<G: Group, D: Digest> {
-    z: G,
+    z0: G::ScalarField,
+    z1: G::ScalarField,
+    zt: G::ScalarField,
+    c: G::ScalarField,
     phantom: PhantomData<D>,
 }
 
@@ -123,18 +126,72 @@ impl<G: Group + Hash, D: Digest> AlgMac<G, D> {
     ) -> Result<(Mac<G>, MacProof<G, D>), Error>{
         let t = Self::blind_mac(pp, sk, M);
         // Generate random commitments
-        let r0 = G::ScalarField::rand(rng);
-        let r1 = G::ScalarField::rand(rng);
-        let rt = G::ScalarField::rand(rng);
-        let s_u1 = t.u0.mul(&r0) + M.mul(&r1);
-        let s_cx0 = pp.g.mul(&r0) + pp.h.mul(&rt);
-        let s_x1 = pp.h.mul(&r1);
+        let (r0, r1, rt, c, s_u1) = loop {
+            let r0 = G::ScalarField::rand(rng);
+            let r1 = G::ScalarField::rand(rng);
+            let rt = G::ScalarField::rand(rng);
+            let s_u1 = t.u0.mul(&r0) + M.mul(&r1);
+            let s_cx0 = pp.g.mul(&r0) + pp.h.mul(&rt);
+            let s_x1 = pp.h.mul(&r1);
 
-        // Hash statement and commitments to get challenge
-        let mut hash_input = Vec::new();
-        hash_input.extend_from_slice(&to_bytes![pp]?);
+            // Hash statement and commitments to get challenge
+            // TODO: Does hash function create random bytes that maps to full scalar field?
+            let mut hash_input = Vec::new();
+            //let hash_bytes = to_bytes![pp, sk.pk, t, M, s_u1, s_cx0, s_x1]?;
+            let hash_bytes = to_bytes![s_u1]?;
+            println!("P u1 commitment: {}", s_u1);
+            println!("P hash bytes: {:x?}", hash_bytes);
+            hash_input.extend_from_slice(&hash_bytes);
+            if let Some(c) = G::ScalarField::from_random_bytes(&D::digest(&hash_input)) {
+                break (r0, r1, rt, c, s_u1);
+            };
+        };
 
+        // Calculate prover response
+        let proof = MacProof {
+            z0: r0 + &(c * &sk.x0),
+            z1: r1 + &(c * &sk.x1),
+            zt : rt + &(c * &sk.xt),
+            c: c,
+            phantom: PhantomData,
+        };
+
+        let v_s_u1 = t.u0.mul(&proof.z0) + M.mul(&proof.z1) - &t.u1.mul(&proof.c);
+        let hash_bytes = to_bytes![v_s_u1]?;
+        println!("V u1 commitment: {}", v_s_u1);
+        println!("V hash bytes: {:x?}", hash_bytes);
+        println!("P == V? {}", s_u1 == v_s_u1);
+
+        Ok((t, proof))
     }
+
+    pub fn verify_mac_proof(
+        pp: &PublicParams<G>,
+        pk: &PubKey<G>,
+        M: &G,
+        t: &Mac<G>,
+        proof: &MacProof<G, D>
+    ) -> Result<bool, Error> {
+        let s_u1 = t.u0.mul(&proof.z0) + M.mul(&proof.z1) - &t.u1.mul(&proof.c);
+        let s_cx0 = pp.g.mul(&proof.z0) + pp.h.mul(&proof.zt) - &pk.CX0.mul(&proof.c);
+        let s_x1 = pp.h.mul(&proof.z1) - &pk.X1.mul(&proof.c);
+
+        let mut hash_input = Vec::new();
+        //let hash_bytes = to_bytes![pp, pk, t, M, s_u1, s_cx0, s_x1]?;
+        let hash_bytes = to_bytes![s_u1]?;
+        println!("C u1 commitment: {}", s_u1);
+        println!("C hash bytes: {:x?}", hash_bytes);
+        hash_input.extend_from_slice(&hash_bytes);
+        match G::ScalarField::from_random_bytes(&D::digest(&hash_input)) {
+            None => Ok(false),
+            Some(c) => {
+                println!("Calculated challenge: {}", c);
+                println!("Proof challenge: {}", proof.c);
+                Ok(c == proof.c)
+            },
+        }
+    }
+
 
 }
 
@@ -163,11 +220,11 @@ mod tests {
         SeedableRng,
         rngs::StdRng,
     };
+    use sha3::Sha3_256;
 
-    #[test]
     fn mac_verify() {
         let mut rng = StdRng::seed_from_u64(0u64);
-        type AlgMacG1 = AlgMac<G1Projective>;
+        type AlgMacG1 = AlgMac<G1Projective, Sha3_256>;
         let pp = AlgMacG1::setup(&G1Projective::prime_subgroup_generator(), &mut rng);
         let (pk, sk) = AlgMacG1::keygen(&pp, &mut rng);
         let m = Fr::rand(&mut rng);
@@ -176,4 +233,18 @@ mod tests {
         assert!(AlgMacG1::verify_mac(&pp, &sk, &m, &t));
         assert!(AlgMacG1::verify_mac(&pp, &sk, &m, &t.rerandomize(&mut rng)));
     }
+
+    #[test]
+    fn mac_proof() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        type AlgMacG1 = AlgMac<G1Projective, Sha3_256>;
+        let pp = AlgMacG1::setup(&G1Projective::prime_subgroup_generator(), &mut rng);
+        let (pk, sk) = AlgMacG1::keygen(&pp, &mut rng);
+        let m = Fr::rand(&mut rng);
+        let M = pp.g.mul(&m);
+        let (t, proof) = AlgMacG1::blind_mac_and_prove(&pp, &sk, &M, &mut rng).unwrap();
+        println!("Output of verify: {}", AlgMacG1::verify_mac_proof(&pp, &pk, &M, &t, &proof).unwrap());
+        assert!(AlgMacG1::verify_mac_proof(&pp, &pk, &M, &t, &proof).unwrap());
+    }
+
 }

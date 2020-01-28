@@ -8,3 +8,4 @@ edition = "2018"
 algebra = { git = "https://github.com/scipr-lab/zexe/"}
 digest = "0.8.1"
 rand = "0.7.3"
+sha3 = "0.8.2"
