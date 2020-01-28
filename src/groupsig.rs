@@ -1,9 +1,18 @@
-use algebra::curves::PairingEngine;
-
-use rand;
+use crate::{
+    algmac::{GGM, Mac, MacProof},
+    Error,
+};
+use algebra::{
+    curves::PairingEngine,
+    groups::Group,
+    fields::PrimeField,
+    UniformRand,
+};
+use digest::Digest;
+use rand::Rng;
 use std::marker::PhantomData;
 
-pub struct GroupSig<E: PairingEngine>(PhantomData<E>);
+pub struct GroupSig<E: PairingEngine, D: Digest>(PhantomData<E>, PhantomData<D>);
 
 pub struct PublicParams<E: PairingEngine> {
     g1: E::G1Projective,
@@ -12,12 +21,9 @@ pub struct PublicParams<E: PairingEngine> {
 }
 
 // Public and private key pair for group manager
-pub struct GmPubKey<E: PairingEngine> {
-    CX0: E::G1Projective,
-    X1: E::G1Projective,
-}
+pub struct GmPubKey<E: PairingEngine> =
 
-pub struct GmPrivKey<E: PairingEngine> {
+pub struct GmSecretKey<E: PairingEngine> {
     x0: E::Fr,
     x1: E::Fr,
 }
@@ -27,26 +33,26 @@ pub struct PubKey<E: PairingEngine> {
     X: E::G1Projective,
 }
 
-pub struct PrivKey<E: PairingEngine> {
+pub struct SecretKey<E: PairingEngine> {
     x: E::Fr,
-    t: (E::G1Projective, E::G1Projective),
+    t: Mac<E>,
 }
 
-impl<E: PairingEngine> GroupSig<E> {
-    pub fn setup() -> PublicParams<E> {
+impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
+    pub fn setup<R: Rng>(rng: &mut R) -> PublicParams<E> {
         let gen1 = E::G1Projective::prime_subgroup_generator();
         let gen2 = E::G2Projective::prime_subgroup_generator();
         PublicParams {
-            g1: gen1.mul(&rand::random()),
-            h1: gen1.mul(&rand::random()),
-            g2: gen2.mul(rand::random()),
+            g1: gen1.mul(&E::Fr::rand(rng)),
+            h1: gen1.mul(&E::Fr::rand(rng)),
+            g2: gen2.mul(&E::Fr::rand(rng)),
         }
     }
 
-    pub fn gm_keygen(pp: &PublicParams<E>) -> (GmPubKey<E>, GmPrivKey<E>) {
-        let sk = GmPrivKey {
-            x0: rand::random(),
-            x1: rand::random(),
+    pub fn gm_keygen<R: Rng>(pp: &PublicParams<E>, rng: &mut R) -> (GmPubKey<E>, GmSecretKey<E>) {
+        let sk = GmSecretKey {
+            x0: E::Fr::rand(rng),
+            x1: E::Fr::rand(rng),
         };
         let pk = GmPubKey {
             CX0: pp.h1.mul(&sk.x1),

@@ -14,7 +14,45 @@ use std::{
     vec::Vec,
 };
 
-pub struct AlgMac<G: ProjectiveCurve, D: Digest>(PhantomData<G>, PhantomData<D>);
+pub trait AlgMac {
+    type G: Group;
+    type Pr: PrimeField;
+    type PublicParams;
+    type PubKey;
+    type SecretKey;
+    type Mac;
+    type MacProof;
+
+    fn setup<R: Rng>(gen: &Self::G, rng: &mut R) -> Self::PublicParams;
+    fn keygen<R: Rng>(pp: &Self::PublicParams, rng: &mut R) -> (Self::PubKey, Self::SecretKey);
+    fn blind_mac(
+        pp: &Self::PublicParams,
+        sk: &Self::SecretKey,
+        M: &Self::G,
+    ) -> Self::Mac;
+    fn verify_mac(
+        pp: &Self::PublicParams,
+        sk: &Self::SecretKey,
+        m: &Self::Pr,
+        t: &Self::Mac,
+    ) -> bool;
+    fn blind_mac_and_prove<R: Rng>(
+        pp: &Self::PublicParams,
+        sk: &Self::SecretKey,
+        M: &Self::G,
+        rng: &mut R,
+    ) -> Result<(Self::Mac, Self::MacProof), Error>;
+    fn verify_mac_proof(
+        pp: &Self::PublicParams,
+        pk: &Self::PubKey,
+        M: &Self::G,
+        t: &Self::Mac,
+        proof: &Self::MacProof,
+    ) -> Result<bool, Error>;
+}
+
+//TODO: switch generic type back to Group if able to fix serialization/hashing
+pub struct GGM<G: ProjectiveCurve, D: Digest>(PhantomData<G>, PhantomData<D>);
 
 pub struct PublicParams<G: ProjectiveCurve> {
     g: G,
@@ -71,15 +109,23 @@ pub struct MacProof<G: ProjectiveCurve, D: Digest> {
     phantom: PhantomData<D>,
 }
 
-impl<G: ProjectiveCurve, D: Digest> AlgMac<G, D> {
-    pub fn setup<R: Rng>(gen: &G, rng: &mut R) -> PublicParams<G> {
+impl<G: ProjectiveCurve, D: Digest> AlgMac for GGM<G, D> {
+    type G = G;
+    type Pr = G::ScalarField;
+    type PublicParams = PublicParams<G>;
+    type PubKey = PubKey<G>;
+    type SecretKey = SecretKey<G>;
+    type Mac = Mac<G>;
+    type MacProof = MacProof<G, D>;
+
+    fn setup<R: Rng>(gen: &G, rng: &mut R) -> PublicParams<G> {
         PublicParams {
             g: gen.mul(&G::ScalarField::rand(rng)),
             h: gen.mul(&G::ScalarField::rand(rng)),
         }
     }
 
-    pub fn keygen<R: Rng>(pp: &PublicParams<G>, rng: &mut R)
+    fn keygen<R: Rng>(pp: &PublicParams<G>, rng: &mut R)
         -> (PubKey<G>, SecretKey<G>) {
         let x0 =  G::ScalarField::rand(rng);
         let x1 = G::ScalarField::rand(rng);
@@ -98,7 +144,7 @@ impl<G: ProjectiveCurve, D: Digest> AlgMac<G, D> {
     }
 
     // MACs "M" where "M = g^m" and "m" is hidden
-    pub fn blind_mac(
+    fn blind_mac(
         pp: &PublicParams<G>,
         sk: &SecretKey<G>,
         M: &G,
@@ -109,7 +155,7 @@ impl<G: ProjectiveCurve, D: Digest> AlgMac<G, D> {
         }
     }
 
-    pub fn verify_mac(
+    fn verify_mac(
         pp: &PublicParams<G>,
         sk: &SecretKey<G>,
         m: &G::ScalarField,
@@ -118,7 +164,7 @@ impl<G: ProjectiveCurve, D: Digest> AlgMac<G, D> {
         t.u0.mul(&(*m * &sk.x1 + &sk.x0)) == t.u1
     }
 
-    pub fn blind_mac_and_prove<R: Rng>(
+    fn blind_mac_and_prove<R: Rng>(
         pp: &PublicParams<G>,
         sk: &SecretKey<G>,
         M: &G,
@@ -164,7 +210,7 @@ impl<G: ProjectiveCurve, D: Digest> AlgMac<G, D> {
         Ok((t, proof))
     }
 
-    pub fn verify_mac_proof(
+    fn verify_mac_proof(
         pp: &PublicParams<G>,
         pk: &PubKey<G>,
         M: &G,
@@ -224,7 +270,7 @@ mod tests {
 
     fn mac_verify() {
         let mut rng = StdRng::seed_from_u64(0u64);
-        type AlgMacG1 = AlgMac<G1Projective, Sha3_256>;
+        type AlgMacG1 = GGM<G1Projective, Sha3_256>;
         let pp = AlgMacG1::setup(&G1Projective::prime_subgroup_generator(), &mut rng);
         let (pk, sk) = AlgMacG1::keygen(&pp, &mut rng);
         let m = Fr::rand(&mut rng);
@@ -237,7 +283,7 @@ mod tests {
     #[test]
     fn mac_proof() {
         let mut rng = StdRng::seed_from_u64(0u64);
-        type AlgMacG1 = AlgMac<G1Projective, Sha3_256>;
+        type AlgMacG1 = GGM<G1Projective, Sha3_256>;
         let pp = AlgMacG1::setup(&G1Projective::prime_subgroup_generator(), &mut rng);
         let (pk, sk) = AlgMacG1::keygen(&pp, &mut rng);
         let m = Fr::rand(&mut rng);
