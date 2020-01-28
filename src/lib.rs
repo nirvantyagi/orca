@@ -1,7 +1,14 @@
 mod algmac;
-//pub mod groupsig;
+mod error;
+pub mod groupsig;
 
-pub type Error = Box<dyn std::error::Error>;
+
+// Generic associated types: https://users.rust-lang.org/t/workaround-for-generic-associated-types/25920/14
+// TODO: Workaround to get generic associated types for inherent implementation.
+pub trait Gat<T> {
+    type Assoc;
+}
+
 
 #[cfg(test)]
 mod tests {

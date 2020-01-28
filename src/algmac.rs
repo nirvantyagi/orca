@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::error::{Error, SignatureError};
 use algebra::{
     bytes::ToBytes,
     curves::ProjectiveCurve,
@@ -14,49 +14,12 @@ use std::{
     vec::Vec,
 };
 
-pub trait AlgMac {
-    type G: Group;
-    type Pr: PrimeField;
-    type PublicParams;
-    type PubKey;
-    type SecretKey;
-    type Mac;
-    type MacProof;
-
-    fn setup<R: Rng>(gen: &Self::G, rng: &mut R) -> Self::PublicParams;
-    fn keygen<R: Rng>(pp: &Self::PublicParams, rng: &mut R) -> (Self::PubKey, Self::SecretKey);
-    fn blind_mac(
-        pp: &Self::PublicParams,
-        sk: &Self::SecretKey,
-        M: &Self::G,
-    ) -> Self::Mac;
-    fn verify_mac(
-        pp: &Self::PublicParams,
-        sk: &Self::SecretKey,
-        m: &Self::Pr,
-        t: &Self::Mac,
-    ) -> bool;
-    fn blind_mac_and_prove<R: Rng>(
-        pp: &Self::PublicParams,
-        sk: &Self::SecretKey,
-        M: &Self::G,
-        rng: &mut R,
-    ) -> Result<(Self::Mac, Self::MacProof), Error>;
-    fn verify_mac_proof(
-        pp: &Self::PublicParams,
-        pk: &Self::PubKey,
-        M: &Self::G,
-        t: &Self::Mac,
-        proof: &Self::MacProof,
-    ) -> Result<bool, Error>;
-}
-
 //TODO: switch generic type back to Group if able to fix serialization/hashing
 pub struct GGM<G: ProjectiveCurve, D: Digest>(PhantomData<G>, PhantomData<D>);
 
 pub struct PublicParams<G: ProjectiveCurve> {
-    g: G,
-    h: G,
+    pub g: G,
+    pub h: G,
 }
 
 //TODO: derive algebra::bytes::ToBytes from struct?
@@ -70,8 +33,8 @@ impl<G: ProjectiveCurve> ToBytes for PublicParams<G> {
 // Public and private MAC key pair
 #[derive(Clone)]
 pub struct PubKey<G: ProjectiveCurve> {
-    CX0: G,
-    X1: G,
+    pub CX0: G,
+    pub X1: G,
 }
 
 impl<G: ProjectiveCurve> ToBytes for PubKey<G> {
@@ -83,15 +46,16 @@ impl<G: ProjectiveCurve> ToBytes for PubKey<G> {
 
 
 pub struct SecretKey<G: ProjectiveCurve> {
-    x0: G::ScalarField,
-    x1: G::ScalarField,
-    xt: G::ScalarField,
-    pk: PubKey<G>,
+    pub x0: G::ScalarField,
+    pub x1: G::ScalarField,
+    pub xt: G::ScalarField,
+    pub pk: PubKey<G>,
 }
 
+#[derive(Clone)]
 pub struct Mac<G: ProjectiveCurve> {
-    u0: G,
-    u1: G,
+    pub u0: G,
+    pub u1: G,
 }
 
 impl<G: ProjectiveCurve> ToBytes for Mac<G> {
@@ -109,23 +73,16 @@ pub struct MacProof<G: ProjectiveCurve, D: Digest> {
     phantom: PhantomData<D>,
 }
 
-impl<G: ProjectiveCurve, D: Digest> AlgMac for GGM<G, D> {
-    type G = G;
-    type Pr = G::ScalarField;
-    type PublicParams = PublicParams<G>;
-    type PubKey = PubKey<G>;
-    type SecretKey = SecretKey<G>;
-    type Mac = Mac<G>;
-    type MacProof = MacProof<G, D>;
+impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
 
-    fn setup<R: Rng>(gen: &G, rng: &mut R) -> PublicParams<G> {
+    pub fn setup<R: Rng>(gen: &G, rng: &mut R) -> PublicParams<G> {
         PublicParams {
             g: gen.mul(&G::ScalarField::rand(rng)),
             h: gen.mul(&G::ScalarField::rand(rng)),
         }
     }
 
-    fn keygen<R: Rng>(pp: &PublicParams<G>, rng: &mut R)
+    pub fn keygen<R: Rng>(pp: &PublicParams<G>, rng: &mut R)
         -> (PubKey<G>, SecretKey<G>) {
         let x0 =  G::ScalarField::rand(rng);
         let x1 = G::ScalarField::rand(rng);
@@ -144,7 +101,7 @@ impl<G: ProjectiveCurve, D: Digest> AlgMac for GGM<G, D> {
     }
 
     // MACs "M" where "M = g^m" and "m" is hidden
-    fn blind_mac(
+    pub fn blind_mac(
         pp: &PublicParams<G>,
         sk: &SecretKey<G>,
         M: &G,
@@ -155,7 +112,7 @@ impl<G: ProjectiveCurve, D: Digest> AlgMac for GGM<G, D> {
         }
     }
 
-    fn verify_mac(
+    pub fn verify_mac(
         pp: &PublicParams<G>,
         sk: &SecretKey<G>,
         m: &G::ScalarField,
@@ -164,7 +121,7 @@ impl<G: ProjectiveCurve, D: Digest> AlgMac for GGM<G, D> {
         t.u0.mul(&(*m * &sk.x1 + &sk.x0)) == t.u1
     }
 
-    fn blind_mac_and_prove<R: Rng>(
+    pub fn blind_mac_and_prove<R: Rng>(
         pp: &PublicParams<G>,
         sk: &SecretKey<G>,
         M: &G,
@@ -210,7 +167,7 @@ impl<G: ProjectiveCurve, D: Digest> AlgMac for GGM<G, D> {
         Ok((t, proof))
     }
 
-    fn verify_mac_proof(
+    pub fn verify_mac_proof(
         pp: &PublicParams<G>,
         pk: &PubKey<G>,
         M: &G,
@@ -234,7 +191,13 @@ impl<G: ProjectiveCurve, D: Digest> AlgMac for GGM<G, D> {
         hash_input.extend_from_slice(&hash_bytes);
         match G::ScalarField::from_random_bytes(&D::digest(&hash_input)) {
             None => Ok(false),
-            Some(c) => Ok(c == proof.c),
+            Some(c) => {
+                if c == proof.c {
+                    Ok(true)
+                } else {
+                    Err(Box::new(SignatureError::ProofVerificationFailed))
+                }
+            },
         }
     }
 
@@ -268,11 +231,12 @@ mod tests {
     };
     use sha3::Sha3_256;
 
+    #[test]
     fn mac_verify() {
         let mut rng = StdRng::seed_from_u64(0u64);
         type AlgMacG1 = GGM<G1Projective, Sha3_256>;
         let pp = AlgMacG1::setup(&G1Projective::prime_subgroup_generator(), &mut rng);
-        let (pk, sk) = AlgMacG1::keygen(&pp, &mut rng);
+        let (_, sk) = AlgMacG1::keygen(&pp, &mut rng);
         let m = Fr::rand(&mut rng);
         let M = pp.g.mul(&m);
         let t = AlgMacG1::blind_mac(&pp, &sk, &M);
