@@ -190,7 +190,7 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
         ]?;
         hash_input.extend_from_slice(&hash_bytes);
         match G::ScalarField::from_random_bytes(&D::digest(&hash_input)) {
-            None => Ok(false),
+            None => Err(Box::new(SignatureError::ProofVerificationFailed)),
             Some(c) => {
                 if c == proof.c {
                     Ok(true)
