@@ -7,6 +7,7 @@ pub type Error = Box<dyn std::error::Error>;
 
 #[derive(Debug)]
 pub enum SignatureError {
+    RevocationTokenMatch,
     ProofVerificationFailed,
 }
 
@@ -21,7 +22,8 @@ impl ErrorTrait for SignatureError {
 impl fmt::Display for SignatureError {
     fn fmt(self: &Self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SignatureError::ProofVerificationFailed => write!(f, "proof verification failed")
+            SignatureError::RevocationTokenMatch => write!(f, "matched with revocation token"),
+            SignatureError::ProofVerificationFailed => write!(f, "proof verification failed"),
         }
     }
 }

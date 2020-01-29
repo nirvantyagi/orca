@@ -14,7 +14,7 @@ use algebra::{
     bytes::ToBytes,
     curves::{PairingEngine, ProjectiveCurve},
     groups::Group,
-    fields::PrimeField,
+    fields::{Field, PrimeField},
     to_bytes, UniformRand,
 };
 use digest::Digest;
@@ -86,6 +86,11 @@ pub struct Signature<E: PairingEngine, D: Digest> {
     z_ct: E::Fr,
     c: E::Fr,
     phantom: PhantomData<D>,
+}
+
+#[derive(Copy, Clone)]
+pub struct RevocationToken<E: PairingEngine> {
+    tok: E::G1Projective,
 }
 
 // TODO: associated types not allowed in inherent impls - better way to keep GGM around?
@@ -233,9 +238,19 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         pp: &PublicParams<E>,
         gmsk: &GmSecretKey<E>,
         oapk: &OaPubKey<E>,
+        rev_list: &Vec<RevocationToken<E>>,
         msg: &[u8],
         sig: &Signature<E, D>,
     ) -> Result<bool, Error> {
+        // Check ciphertext against revocation list
+        if rev_list.iter()
+            .any(|&rt|
+                E::pairing((sig.ct2 - &rt.tok).clone(), pp.g2.clone())
+                    == E::pairing(sig.ct1.clone(), oapk.X2.clone())) {
+            return Err(Box::new(SignatureError::RevocationTokenMatch));
+        }
+
+        // Verify proof
         let V = sig.u0.mul(&gmsk.x0) + sig.C_sk.mul(&gmsk.x1) - &sig.C_u1;
         let s_csk = sig.u0.mul(&sig.z_sk) + pp.h1.mul(&sig.z_ask) - &sig.C_sk.mul(&sig.c);
         let s_v = pp.g1.mul(&sig.z_u1) + gmsk.pk.X1.mul(&sig.z_ask) - &V.mul(&sig.c);
@@ -267,6 +282,24 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
                 }
             },
         }
+    }
+
+    pub fn trace(
+        pp: &PublicParams<E>,
+        oask: &OaSecretKey<E>,
+        sig: &Signature<E, D>,
+    ) -> UPubKey<E> {
+        UPubKey{
+            X: (sig.ct2 - &sig.ct1.mul(&oask.x)).mul(&(oask.x.inverse().unwrap())).clone(),
+        }
+    }
+
+    pub fn revoke(
+        pp: &PublicParams<E>,
+        oask:&OaSecretKey<E>,
+        upk: &UPubKey<E>,
+    ) -> RevocationToken<E> {
+        RevocationToken{tok: upk.X.mul(&oask.x)}
     }
 
 }
@@ -313,17 +346,58 @@ mod tests {
         // Sign message
         let m1 = "Plaintext".as_bytes();
         let sig = GroupSigBLS::sign(&pp, &gmpk, &oapk, &sk, m1, &mut rng).unwrap();
-        assert!(GroupSigBLS::verify(&pp, &gmsk, &oapk, m1, &sig).is_ok());
+        assert!(GroupSigBLS::verify(&pp, &gmsk, &oapk, &vec![], m1, &sig).is_ok());
         // Fails on different message
         let m2 = "Different Plaintext".as_bytes();
-        assert!(GroupSigBLS::verify(&pp, &gmsk, &oapk, m2, &sig).is_err());
+        assert!(GroupSigBLS::verify(&pp, &gmsk, &oapk, &vec![], m2, &sig).is_err());
         // Fails on different keys
         let (_, gmsk2) = GroupSigBLS::keygen_gm(&pp, &mut rng);
         let (oapk2, _) = GroupSigBLS::keygen_oa(&pp, &mut rng);
-        assert!(GroupSigBLS::verify(&pp, &gmsk2, &oapk, m1, &sig).is_err());
-        assert!(GroupSigBLS::verify(&pp, &gmsk, &oapk2, m1, &sig).is_err());
+        assert!(GroupSigBLS::verify(&pp, &gmsk2, &oapk, &vec![], m1, &sig).is_err());
+        assert!(GroupSigBLS::verify(&pp, &gmsk, &oapk2, &vec![], m1, &sig).is_err());
+    }
 
+    #[test]
+    fn trace() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        type GroupSigBLS = GroupSig<Bls12_381, Sha3_256>;
+        let pp = GroupSigBLS::setup(&mut rng);
+        let (gmpk, gmsk) = GroupSigBLS::keygen_gm(&pp, &mut rng);
+        let (oapk, oask) = GroupSigBLS::keygen_oa(&pp, &mut rng);
+        let (pk_s1, sk_s1) = GroupSigBLS::issue_s1_user(&pp, &mut rng);
+        let (t, proof, pk) = GroupSigBLS::issue_s2_gm(&pp, &gmsk, &pk_s1, &mut rng).unwrap();
+        let sk = GroupSigBLS::issue_s3_user(&pp, &gmpk, &sk_s1, &t, &proof).unwrap();
+        // Sign message
+        let m1 = "Plaintext".as_bytes();
+        let sig = GroupSigBLS::sign(&pp, &gmpk, &oapk, &sk, m1, &mut rng).unwrap();
+        // Trace message
+        let upk = GroupSigBLS::trace(&pp, &oask, &sig);
+        assert!(upk.X == pk.X);
+    }
 
+    #[test]
+    fn revoke() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        type GroupSigBLS = GroupSig<Bls12_381, Sha3_256>;
+        let pp = GroupSigBLS::setup(&mut rng);
+        let (gmpk, gmsk) = GroupSigBLS::keygen_gm(&pp, &mut rng);
+        let (oapk, oask) = GroupSigBLS::keygen_oa(&pp, &mut rng);
+        let (pk_s1, sk_s1) = GroupSigBLS::issue_s1_user(&pp, &mut rng);
+        let (t, proof, pk) = GroupSigBLS::issue_s2_gm(&pp, &gmsk, &pk_s1, &mut rng).unwrap();
+        let sk = GroupSigBLS::issue_s3_user(&pp, &gmpk, &sk_s1, &t, &proof).unwrap();
+        // Sign message
+        let m1 = "Plaintext".as_bytes();
+        let sig = GroupSigBLS::sign(&pp, &gmpk, &oapk, &sk, m1, &mut rng).unwrap();
+        // Revoke signer
+        let rt = GroupSigBLS::revoke(&pp, &oask, &pk);
+        // Verification
+        assert!(GroupSigBLS::verify(&pp, &gmsk, &oapk, &vec![rt.clone()], m1, &sig).is_err());
+        let (oapk2, oask2) = GroupSigBLS::keygen_oa(&pp, &mut rng);
+        let rt2 = GroupSigBLS::revoke(&pp, &oask2, &pk);
+        assert!(GroupSigBLS::verify(&pp, &gmsk, &oapk2, &vec![rt.clone()], m1, &sig).is_err());
+        assert!(GroupSigBLS::verify(&pp, &gmsk, &oapk, &vec![rt2.clone()], m1, &sig).is_ok());
+        assert!(GroupSigBLS::verify(&pp, &gmsk, &oapk2, &vec![rt2.clone()], m1, &sig).is_err());
+        assert!(GroupSigBLS::verify(&pp, &gmsk, &oapk, &vec![rt.clone(), rt2.clone()], m1, &sig).is_err());
     }
 
 }
