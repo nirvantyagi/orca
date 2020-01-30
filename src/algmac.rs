@@ -66,9 +66,11 @@ impl<G: ProjectiveCurve> ToBytes for Mac<G> {
 }
 
 pub struct MacProof<G: ProjectiveCurve, D: Digest> {
+    M_r: G,
     z0: G::ScalarField,
     z1: G::ScalarField,
     zt: G::ScalarField,
+    zr: G::ScalarField,
     c: G::ScalarField,
     phantom: PhantomData<D>,
 }
@@ -101,15 +103,16 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
     }
 
     // MACs "M" where "M = g^m" and "m" is hidden
-    pub fn blind_mac(
+    pub fn group_elem_mac<R: Rng>(
         pp: &PublicParams<G>,
         sk: &SecretKey<G>,
         M: &G,
+        rng: &mut R,
     ) -> Mac<G> {
         Mac {
             u0: pp.g,
             u1: M.mul(&sk.x1) + pp.g.mul(&sk.x0),
-        }
+        }.rerandomize(&G::ScalarField::rand(rng))
     }
 
     pub fn verify_mac(
@@ -127,13 +130,23 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
         M: &G,
         rng: &mut R,
     ) -> Result<(Mac<G>, MacProof<G, D>), Error>{
-        let t = Self::blind_mac(pp, sk, M);
+        // Create MAC with base g and rerandomize
+        let r = G::ScalarField::rand(rng);
+        let t = Mac {
+            u0: pp.g,
+            u1: M.mul(&sk.x1) + pp.g.mul(&sk.x0),
+        }.rerandomize(&r);
+        let M_r = M.mul(&r);
+
         // Generate random commitments
-        let (r0, r1, rt, c) = loop {
+        let (r0, r1, rt, rr, c) = loop {
             let r0 = G::ScalarField::rand(rng);
             let r1 = G::ScalarField::rand(rng);
             let rt = G::ScalarField::rand(rng);
-            let s_u1 = t.u0.mul(&r0) + M.mul(&r1);
+            let rr = G::ScalarField::rand(rng);
+            let s_u0 = pp.g.mul(&rr);
+            let s_mr = M.mul(&rr);
+            let s_u1 = t.u0.mul(&r0) + M_r.mul(&(r1));
             let s_cx0 = pp.g.mul(&r0) + pp.h.mul(&rt);
             let s_x1 = pp.h.mul(&r1);
 
@@ -144,22 +157,26 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
                 pp,
                 sk.pk,
                 t,
-                M,
+                M, M_r,
+                s_u0.into_affine(),
+                s_mr.into_affine(),
                 s_u1.into_affine(),
                 s_cx0.into_affine(),
                 s_x1.into_affine()
             ]?;
             hash_input.extend_from_slice(&hash_bytes);
             if let Some(c) = G::ScalarField::from_random_bytes(&D::digest(&hash_input)) {
-                break (r0, r1, rt, c);
+                break (r0, r1, rt, rr, c);
             };
         };
 
         // Calculate prover response
         let proof = MacProof {
+            M_r: M_r,
             z0: r0 + &(c * &sk.x0),
             z1: r1 + &(c * &sk.x1),
             zt : rt + &(c * &sk.xt),
+            zr : rr + &(c * &r),
             c: c,
             phantom: PhantomData,
         };
@@ -174,7 +191,9 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
         t: &Mac<G>,
         proof: &MacProof<G, D>
     ) -> Result<bool, Error> {
-        let s_u1 = t.u0.mul(&proof.z0) + M.mul(&proof.z1) - &t.u1.mul(&proof.c);
+        let s_u0 = pp.g.mul(&proof.zr) - &t.u0.mul(&proof.c);
+        let s_mr = M.mul(&proof.zr) - &proof.M_r.mul(&proof.c);
+        let s_u1 = t.u0.mul(&proof.z0) + &proof.M_r.mul(&(proof.z1)) - &t.u1.mul(&proof.c);
         let s_cx0 = pp.g.mul(&proof.z0) + pp.h.mul(&proof.zt) - &pk.CX0.mul(&proof.c);
         let s_x1 = pp.h.mul(&proof.z1) - &pk.X1.mul(&proof.c);
 
@@ -183,7 +202,9 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
             pp,
             pk,
             t,
-            M,
+            M, &proof.M_r,
+            s_u0.into_affine(),
+            s_mr.into_affine(),
             s_u1.into_affine(),
             s_cx0.into_affine(),
             s_x1.into_affine()
@@ -201,12 +222,10 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
         }
     }
 
-
 }
 
 impl<G: ProjectiveCurve> Mac<G> {
-    pub fn rerandomize<R: Rng>(self: &Self, rng: &mut R) -> Self {
-        let r = G::ScalarField::rand(rng);
+    pub fn rerandomize(self: &Self, r: &G::ScalarField) -> Self {
         Mac {
             u0: self.u0.mul(&r),
             u1: self.u1.mul(&r),
@@ -239,9 +258,9 @@ mod tests {
         let (_, sk) = AlgMacG1::keygen(&pp, &mut rng);
         let m = Fr::rand(&mut rng);
         let M = pp.g.mul(&m);
-        let t = AlgMacG1::blind_mac(&pp, &sk, &M);
+        let t = AlgMacG1::group_elem_mac(&pp, &sk, &M, &mut rng);
         assert!(AlgMacG1::verify_mac(&pp, &sk, &m, &t));
-        assert!(AlgMacG1::verify_mac(&pp, &sk, &m, &t.rerandomize(&mut rng)));
+        assert!(AlgMacG1::verify_mac(&pp, &sk, &m, &t.rerandomize(&Fr::rand(&mut rng))));
     }
 
     #[test]
