@@ -27,9 +27,9 @@ use std::{
 pub struct GroupSig<E: PairingEngine, D: Digest>(PhantomData<E>, PhantomData<D>);
 
 pub struct PublicParams<E: PairingEngine> {
-    g1: E::G1Projective,
-    h1: E::G1Projective,
-    g2: E::G2Projective,
+    pub g1: E::G1Projective,
+    pub h1: E::G1Projective,
+    pub g2: E::G2Projective,
 }
 
 impl<E: PairingEngine> ToBytes for PublicParams<E> {
@@ -42,7 +42,7 @@ impl<E: PairingEngine> ToBytes for PublicParams<E> {
 
 //TODO: Cloning params every time, better way to share struct data?
 impl<E: PairingEngine> PublicParams<E> {
-    fn mac_params(self: &Self) -> MacPublicParams<E::G1Projective> {
+    pub(crate) fn mac_params(self: &Self) -> MacPublicParams<E::G1Projective> {
         MacPublicParams {g: self.g1.clone(), h: self.h1.clone()}
     }
 }
@@ -130,7 +130,7 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         X: &E::G1Projective,
         rng: &mut R,
     ) -> Result<(Mac<E::G1Projective>, MacProof<E::G1Projective, D>, UPubKey<E>), Error> {
-        match <Self as Gat<GGM<E::G1Projective, D>>>::Assoc::blind_mac_and_prove(
+        match <Self as Gat<GGM<E::G1Projective, D>>>::Assoc::group_elem_mac_and_prove(
             &pp.mac_params(),
             sk,
             X,
@@ -177,7 +177,7 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         // Prepare commitments for proof statement of algebraic MAC
         let a_sk = E::Fr::rand(rng);
         let a_u1 = E::Fr::rand(rng);
-        let t_r = sk.t.rerandomize(rng);
+        let t_r = sk.t.rerandomize(&E::Fr::rand(rng));
         let C_u1 = t_r.u1 + pp.g1.mul(&a_u1);
         let C_sk = t_r.u0.mul(&sk.x) + pp.h1.mul(&a_sk);
 

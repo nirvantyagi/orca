@@ -75,6 +75,46 @@ pub struct MacProof<G: ProjectiveCurve, D: Digest> {
     phantom: PhantomData<D>,
 }
 
+#[derive(Clone)]
+pub struct BlindMacInput<G: ProjectiveCurve> {
+    D: G,
+    ct1: G,
+    ct2: G,
+}
+
+impl<G: ProjectiveCurve> ToBytes for BlindMacInput<G> {
+    fn write<W: Write>(self: &Self, mut writer: W) -> IoResult<()> {
+        self.D.write(&mut writer)?;
+        self.ct1.write(&mut writer)?;
+        self.ct2.write(&mut writer)
+    }
+}
+
+
+pub struct BlindMacState<G: ProjectiveCurve> {
+    delta: G::ScalarField,
+    input: BlindMacInput<G>,
+}
+
+pub struct BlindMacOutput<G: ProjectiveCurve, D: Digest> {
+    u0: G,
+    ct1: G,
+    ct2: G,
+    proof: BlindMacProof<G, D>,
+}
+
+pub struct BlindMacProof<G: ProjectiveCurve, D: Digest> {
+    X_b1: G,
+    z_x0: G::ScalarField,
+    z_x1: G::ScalarField,
+    z_xt: G::ScalarField,
+    z_r: G::ScalarField,
+    z_b: G::ScalarField,
+    z_b1: G::ScalarField,
+    c: G::ScalarField,
+    phantom: PhantomData<D>,
+}
+
 impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
 
     pub fn setup<R: Rng>(gen: &G, rng: &mut R) -> PublicParams<G> {
@@ -102,7 +142,7 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
         (pk, sk)
     }
 
-    // MACs "M" where "M = g^m" and "m" is hidden
+    // MACs "M" where "M" in G
     pub fn group_elem_mac<R: Rng>(
         pp: &PublicParams<G>,
         sk: &SecretKey<G>,
@@ -124,7 +164,8 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
         t.u0.mul(&(*m * &sk.x1 + &sk.x0)) == t.u1
     }
 
-    pub fn blind_mac_and_prove<R: Rng>(
+    // MACs "M" where "M = g^m" and "m" is hidden
+    pub fn group_elem_mac_and_prove<R: Rng>(
         pp: &PublicParams<G>,
         sk: &SecretKey<G>,
         M: &G,
@@ -222,6 +263,142 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
         }
     }
 
+    pub fn blind_mac_input<R: Rng>(
+        pp: &PublicParams<G>,
+        m: &G::ScalarField,
+        rng: &mut R,
+    ) -> (BlindMacState<G>, BlindMacInput<G>) {
+        let r = G::ScalarField::rand(rng);
+        let delta = G::ScalarField::rand(rng);
+        let D = pp.g.mul(&delta);
+        let input = BlindMacInput{
+            D: D,
+            ct1: pp.g.mul(&r),
+            ct2: pp.g.mul(m) + D.mul(&r),
+        };
+        (BlindMacState{delta: delta, input: input.clone()}, input)
+    }
+
+    pub fn blind_mac_eval<R: Rng>(
+        pp: &PublicParams<G>,
+        sk: &SecretKey<G>,
+        inp: &BlindMacInput<G>,
+        rng: &mut R,
+    ) -> Result<BlindMacOutput<G, D>, Error> {
+        let b = G::ScalarField::rand(rng);
+        let r = G::ScalarField::rand(rng);
+
+        // Homomorphically evaluate encryption of MAC
+        let b1 = sk.x1 * &b;
+        let u0 = pp.g.mul(&b);
+        let ct1 = inp.ct1.mul(&b1) + pp.g.mul(&r);
+        let ct2 = inp.ct2.mul(&b1) + u0.mul(&sk.x0) + inp.D.mul(&r);
+
+        // Create auxiliary variable useful for proving discrete log products
+        let X_b1 = pp.h.mul(&b1);
+
+        // Generate random commitments and challenge for Sigma protocol
+        let (r_x0, r_x1, r_xt, r_r, r_b, r_b1, c) = loop {
+            let r_x0 = G::ScalarField::rand(rng);
+            let r_x1 = G::ScalarField::rand(rng);
+            let r_xt = G::ScalarField::rand(rng);
+            let r_r = G::ScalarField::rand(rng);
+            let r_b = G::ScalarField::rand(rng);
+            let r_b1 = G::ScalarField::rand(rng);
+
+            let s_x1 = pp.h.mul(&r_x1);
+            let s_cx0 = pp.g.mul(&r_x0) + pp.h.mul(&r_xt);
+            let s_xb1_a = sk.pk.X1.mul(&r_b);
+            let s_xb1_b = pp.h.mul(&r_b1);
+            let s_u0 = pp.g.mul(&r_b);
+            let s_ct1 = inp.ct1.mul(&r_b1) + pp.g.mul(&r_r);
+            let s_ct2 = inp.ct2.mul(&r_b1) + u0.mul(&r_x0) + inp.D.mul(&r_r);
+
+            let mut hash_input = Vec::new();
+            let hash_bytes = to_bytes![
+                pp,
+                sk.pk,
+                inp,
+                u0, X_b1,
+                ct1, ct2,
+                s_x1.into_affine(),
+                s_cx0.into_affine(),
+                s_xb1_a.into_affine(),
+                s_xb1_b.into_affine(),
+                s_u0.into_affine(),
+                s_ct1.into_affine(),
+                s_ct2.into_affine()
+            ]?;
+            hash_input.extend_from_slice(&hash_bytes);
+            if let Some(c) = G::ScalarField::from_random_bytes(&D::digest(&hash_input)) {
+                break (r_x0, r_x1, r_xt, r_r, r_b, r_b1, c);
+            };
+        };
+
+        // Calculate prover response
+        let proof = BlindMacProof {
+            X_b1: X_b1,
+            z_x0: r_x0 + &(c * &sk.x0),
+            z_x1: r_x1 + &(c * &sk.x1),
+            z_xt: r_xt + &(c * &sk.xt),
+            z_r: r_r + &(c * &r),
+            z_b: r_b + &(c * &b),
+            z_b1: r_b1 + &(c * &b1),
+            c: c,
+            phantom: PhantomData,
+        };
+        let output = BlindMacOutput {
+            u0: u0,
+            ct1: ct1,
+            ct2: ct2,
+            proof: proof,
+        };
+        Ok(output)
+    }
+
+    pub fn blind_mac_verify_output(
+        pp: &PublicParams<G>,
+        pk: &PubKey<G>,
+        st: &BlindMacState<G>,
+        output: &BlindMacOutput<G, D>,
+    ) -> Result<Mac<G>, Error> {
+        let s_x1 = pp.h.mul(&output.proof.z_x1) - &pk.X1.mul(&output.proof.c);
+        let s_cx0 = pp.g.mul(&output.proof.z_x0) + pp.h.mul(&output.proof.z_xt) - &pk.CX0.mul(&output.proof.c);
+        let s_xb1_a = pk.X1.mul(&output.proof.z_b) - &output.proof.X_b1.mul(&output.proof.c);
+        let s_xb1_b = pp.h.mul(&output.proof.z_b1) - &output.proof.X_b1.mul(&output.proof.c);
+        let s_u0 = pp.g.mul(&output.proof.z_b) - &output.u0.mul(&output.proof.c);
+        let s_ct1 = st.input.ct1.mul(&output.proof.z_b1) + pp.g.mul(&output.proof.z_r) - &output.ct1.mul(&output.proof.c);
+        let s_ct2 = st.input.ct2.mul(&output.proof.z_b1) + output.u0.mul(&output.proof.z_x0) + st.input.D.mul(&output.proof.z_r) - &output.ct2.mul(&output.proof.c);
+        let mut hash_input = Vec::new();
+
+        let hash_bytes = to_bytes![
+                pp,
+                pk,
+                st.input,
+                output.u0, output.proof.X_b1,
+                output.ct1, output.ct2,
+                s_x1.into_affine(),
+                s_cx0.into_affine(),
+                s_xb1_a.into_affine(),
+                s_xb1_b.into_affine(),
+                s_u0.into_affine(),
+                s_ct1.into_affine(),
+                s_ct2.into_affine()
+            ]?;
+        hash_input.extend_from_slice(&hash_bytes);
+        match G::ScalarField::from_random_bytes(&D::digest(&hash_input)) {
+            None => Err(Box::new(SignatureError::ProofVerificationFailed)),
+            Some(c) => {
+                if c == output.proof.c {
+                    let u1 = output.ct2 - &output.ct1.mul(&st.delta);
+                    Ok(Mac{u0: output.u0, u1: u1})
+                } else {
+                    Err(Box::new(SignatureError::ProofVerificationFailed))
+                }
+            },
+        }
+    }
+
 }
 
 impl<G: ProjectiveCurve> Mac<G> {
@@ -271,8 +448,21 @@ mod tests {
         let (pk, sk) = AlgMacG1::keygen(&pp, &mut rng);
         let m = Fr::rand(&mut rng);
         let M = pp.g.mul(&m);
-        let (t, proof) = AlgMacG1::blind_mac_and_prove(&pp, &sk, &M, &mut rng).unwrap();
+        let (t, proof) = AlgMacG1::group_elem_mac_and_prove(&pp, &sk, &M, &mut rng).unwrap();
         assert!(AlgMacG1::verify_mac_proof(&pp, &pk, &M, &t, &proof).unwrap());
+    }
+
+    #[test]
+    fn blind_mac() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        type AlgMacG1 = GGM<G1Projective, Sha3_256>;
+        let pp = AlgMacG1::setup(&G1Projective::prime_subgroup_generator(), &mut rng);
+        let (pk, sk) = AlgMacG1::keygen(&pp, &mut rng);
+        let m = Fr::rand(&mut rng);
+        let (st, input) = AlgMacG1::blind_mac_input(&pp, &m, &mut rng);
+        let output = AlgMacG1::blind_mac_eval(&pp, &sk, &input, &mut rng).unwrap();
+        let t = AlgMacG1::blind_mac_verify_output(&pp, &pk, &st, &output).unwrap();
+        assert!(AlgMacG1::verify_mac(&pp, &sk, &m, &t));
     }
 
 }
