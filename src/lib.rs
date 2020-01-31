@@ -1,4 +1,4 @@
-mod algmac;
+pub mod algmac;
 mod error;
 pub mod groupsig;
 pub mod token;

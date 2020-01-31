@@ -42,8 +42,8 @@ pub type PltPubKey<E: PairingEngine> = GmPubKey<E>;
 pub type PltSecretKey<E: PairingEngine> = GmSecretKey<E>;
 
 pub struct RecPubKey<E: PairingEngine> {
-    oapk: OaPubKey<E>,
-    tokpk: MacPubKey<E::G1Projective>,
+    pub oapk: OaPubKey<E>,
+    pub tokpk: MacPubKey<E::G1Projective>,
 }
 
 pub type RecSecretKey<E: PairingEngine> = OaSecretKey<E>;
@@ -134,7 +134,7 @@ impl<E: PairingEngine, D: Digest> TokenBL<E, D> {
         <Self as Gat<GroupSig<E, D>>>::Assoc::issue_s3_user(pp, pk, x, t, proof)
     }
 
-    fn request_token_s1_user<R: Rng>(
+    pub fn request_token_s1_user<R: Rng>(
         pp: &PublicParams<E>,
         rpk: &RecPubKey<E>,
         x: &E::Fr,
@@ -192,7 +192,7 @@ impl<E: PairingEngine, D: Digest> TokenBL<E, D> {
         Ok((st, req))
     }
 
-    fn eval_blind_token_s2_plt<R: Rng>(
+    pub fn eval_blind_token_s2_plt<R: Rng>(
         pp: &PublicParams<E>,
         rpk: &RecPubKey<E>,
         rtoksk: &RecTokenSecretKey<E>,

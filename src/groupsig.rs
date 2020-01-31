@@ -42,7 +42,7 @@ impl<E: PairingEngine> ToBytes for PublicParams<E> {
 
 //TODO: Cloning params every time, better way to share struct data?
 impl<E: PairingEngine> PublicParams<E> {
-    pub(crate) fn mac_params(self: &Self) -> MacPublicParams<E::G1Projective> {
+    pub fn mac_params(self: &Self) -> MacPublicParams<E::G1Projective> {
         MacPublicParams {g: self.g1.clone(), h: self.h1.clone()}
     }
 }
@@ -56,11 +56,11 @@ pub type GmSecretKey<E> = MacSecretKey<<E as PairingEngine>::G1Projective>;
 // Public and private key pair for group member
 #[derive(Clone)]
 pub struct UPubKey<E: PairingEngine> {
-    X: E::G1Projective,
+    pub X: E::G1Projective,
 }
 
 pub struct USecretKey<E: PairingEngine> {
-    x: E::Fr,
+    pub x: E::Fr,
     t: Mac<E::G1Projective>,
 }
 
@@ -71,7 +71,7 @@ pub struct OaPubKey<E: PairingEngine> {
 }
 
 pub struct OaSecretKey<E: PairingEngine> {
-    x: E::Fr,
+    pub x: E::Fr,
 }
 
 pub struct Signature<E: PairingEngine, D: Digest> {
@@ -90,7 +90,7 @@ pub struct Signature<E: PairingEngine, D: Digest> {
 
 #[derive(Copy, Clone)]
 pub struct RevocationToken<E: PairingEngine> {
-    tok: E::G1Projective,
+    pub tok: E::G1Projective,
 }
 
 // TODO: associated types not allowed in inherent impls - better way to keep GGM around?
