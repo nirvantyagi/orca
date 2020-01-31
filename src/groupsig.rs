@@ -66,7 +66,7 @@ pub struct USecretKey<E: PairingEngine> {
 
 // Public and private key pair for opening authority
 pub struct OaPubKey<E: PairingEngine> {
-    X1: E::G1Projective,
+    pub X1: E::G1Projective,
     X2: E::G2Projective,
 }
 

@@ -77,9 +77,9 @@ pub struct MacProof<G: ProjectiveCurve, D: Digest> {
 
 #[derive(Clone)]
 pub struct BlindMacInput<G: ProjectiveCurve> {
-    D: G,
-    ct1: G,
-    ct2: G,
+    pub D: G,
+    pub ct1: G,
+    pub ct2: G,
 }
 
 impl<G: ProjectiveCurve> ToBytes for BlindMacInput<G> {
@@ -92,8 +92,9 @@ impl<G: ProjectiveCurve> ToBytes for BlindMacInput<G> {
 
 
 pub struct BlindMacState<G: ProjectiveCurve> {
-    delta: G::ScalarField,
-    input: BlindMacInput<G>,
+    pub delta: G::ScalarField,
+    pub r: G::ScalarField,
+    pub input: BlindMacInput<G>,
 }
 
 pub struct BlindMacOutput<G: ProjectiveCurve, D: Digest> {
@@ -276,7 +277,7 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
             ct1: pp.g.mul(&r),
             ct2: pp.g.mul(m) + D.mul(&r),
         };
-        (BlindMacState{delta: delta, input: input.clone()}, input)
+        (BlindMacState{delta: delta, r: r, input: input.clone()}, input)
     }
 
     pub fn blind_mac_eval<R: Rng>(
@@ -369,8 +370,8 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
         let s_u0 = pp.g.mul(&output.proof.z_b) - &output.u0.mul(&output.proof.c);
         let s_ct1 = st.input.ct1.mul(&output.proof.z_b1) + pp.g.mul(&output.proof.z_r) - &output.ct1.mul(&output.proof.c);
         let s_ct2 = st.input.ct2.mul(&output.proof.z_b1) + output.u0.mul(&output.proof.z_x0) + st.input.D.mul(&output.proof.z_r) - &output.ct2.mul(&output.proof.c);
-        let mut hash_input = Vec::new();
 
+        let mut hash_input = Vec::new();
         let hash_bytes = to_bytes![
                 pp,
                 pk,

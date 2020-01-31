@@ -3,8 +3,9 @@ use crate::{
         GGM,
         PubKey as MacPubKey,
         SecretKey as MacSecretKey,
-        Mac,
-        MacProof,
+        Mac, MacProof,
+        BlindMacInput, BlindMacState,
+        BlindMacOutput, BlindMacProof,
     },
     error::{Error, SignatureError},
     groupsig::{
@@ -52,29 +53,38 @@ pub type SndPubKey<E: PairingEngine> = GSUPubKey<E>;
 pub type SndSecretKey<E: PairingEngine> = GSUSecretKey<E>;
 
 
-pub struct TokenRequestS1<E: PairingEngine, D: Digest> {
-    blinded_token: E::G1Projective,
-    ct1: E::G1Projective,
-    ct2: E::G1Projective,
+pub struct Token<E: PairingEngine> {
+    x: E::Fr,
+    t: E::G1Projective,
+}
+
+pub struct TokenRequest<E: PairingEngine, D: Digest> {
+    blind: BlindMacInput<E::G1Projective>,
+    ct: TokenCiphertext<E>,
     proof: TokenEnclosedProof<E, D>,
 }
 
+#[derive(Clone)]
+pub struct TokenCiphertext<E: PairingEngine> {
+    ct1: E::G1Projective,
+    ct2: E::G1Projective,
+}
+
 pub struct TokenEnclosedProof<E: PairingEngine, D: Digest> {
+    z_x: E::Fr,
+    z_r: E::Fr,
+    z_rh: E::Fr,
     c: E::Fr,
     phantom: PhantomData<D>,
 }
 
-pub struct TokenEvalProof<E: PairingEngine, D: Digest> {
-    c: E::Fr,
-    phantom: PhantomData<D>,
-}
 
 impl<E: PairingEngine, D: Digest> Gat<GroupSig<E, D>> for TokenBL<E, D> {
     type Assoc = GroupSig<E, D>;
 }
 
-impl<E: PairingEngine, D: Digest> Gat<AlgMac<E::G1Projective, D>> for TokenBL<E, D> {
-    type Assoc = AlgMac<E::G1Projective, D>;
+impl<E: PairingEngine, D: Digest> Gat<GGM<E::G1Projective, D>> for TokenBL<E, D> {
+    type Assoc = GGM<E::G1Projective, D>;
 }
 
 impl<E: PairingEngine, D: Digest> TokenBL<E, D> {
@@ -91,7 +101,7 @@ impl<E: PairingEngine, D: Digest> TokenBL<E, D> {
         pp: &PublicParams<E>, rng: &mut R
     ) -> (RecPubKey<E>, RecSecretKey<E>, RecTokenSecretKey<E>) {
         let (oapk, oask) = <Self as Gat<GroupSig<E, D>>>::Assoc::keygen_oa(pp, rng);
-        let (tokpk, toksk) = <Self as Gat<AlgMac<E::G1Projective, D>>>::Assoc::keygen(&pp.mac_params(), rng);
+        let (tokpk, toksk) = <Self as Gat<GGM<E::G1Projective, D>>>::Assoc::keygen(&pp.mac_params(), rng);
         (
             RecPubKey{oapk: oapk, tokpk: tokpk},
             oask,
@@ -121,23 +131,135 @@ impl<E: PairingEngine, D: Digest> TokenBL<E, D> {
         t: &Mac<E::G1Projective>,
         proof: &MacProof<E::G1Projective, D>,
     ) -> Result<SndSecretKey<E>, Error> {
-        <Self as Gat<GroupSig<E, D>>>::Assoc::issue_s3_gm(pp, pk, x, t, proof)
+        <Self as Gat<GroupSig<E, D>>>::Assoc::issue_s3_user(pp, pk, x, t, proof)
     }
 
     fn request_token_s1_user<R: Rng>(
         pp: &PublicParams<E>,
         rpk: &RecPubKey<E>,
-        input: E::Fr,
-        rng: R
-    ) -> (E::Fr, TokenRequestS1<E, D>) {
-        let r = E::Fr::rand(rng);
-        let blinded_token = hash_to_curve(&to_bytes![input].unwrap()).mul(&r);
+        x: &E::Fr,
+        rng: &mut R
+    ) -> Result<(BlindMacState<E::G1Projective>, TokenRequest<E, D>), Error> {
+        let (st, blind) = <Self as Gat<GGM<E::G1Projective, D>>>::Assoc::blind_mac_input(&pp.mac_params(), x, rng);
+
+        // Create ciphertext to recipient enclosing token input
+        let rh = E::Fr::rand(rng);
+        let ct1h = pp.g1.mul(&rh);
+        let ct2h = pp.g1.mul(x) + rpk.oapk.X1.mul(&rh);
+
+        // Prove ciphertext formed correctly
+        // Generate random commitments and challenge for Sigma protocol
+        let (r_x, r_r, r_rh, c) = loop {
+            let r_x = E::Fr::rand(rng);
+            let r_r = E::Fr::rand(rng);
+            let r_rh = E::Fr::rand(rng);
+
+            let s_ct1 = pp.g1.mul(&r_r);
+            let s_ct2 = pp.g1.mul(&r_x) + st.input.D.mul(&r_r);
+            let s_ct1h = pp.g1.mul(&r_rh);
+            let s_ct2h = pp.g1.mul(&r_x) + rpk.oapk.X1.mul(&r_rh);
+
+            let mut hash_input = Vec::new();
+            let hash_bytes = to_bytes![
+                pp,
+                blind, rpk.oapk.X1,
+                ct1h, ct2h,
+                s_ct1.into_affine(),
+                s_ct2.into_affine(),
+                s_ct1h.into_affine(),
+                s_ct2h.into_affine()
+            ]?;
+            hash_input.extend_from_slice(&hash_bytes);
+            if let Some(c) = E::Fr::from_random_bytes(&D::digest(&hash_input)) {
+                break (r_x, r_r, r_rh, c);
+            };
+        };
+
+        // Calculate prover response
+        let proof = TokenEnclosedProof {
+            z_x: r_x + &(c * x),
+            z_r: r_r + &(c * &st.r),
+            z_rh: r_rh + &(c * &rh),
+            c: c,
+            phantom: PhantomData,
+        };
+        let req = TokenRequest {
+            blind: blind,
+            ct: TokenCiphertext {ct1: ct1h, ct2: ct2h},
+            proof: proof,
+        };
+
+        Ok((st, req))
     }
 
-    fn eval_s2_plt<R: Rng>(
-    ) {
+    fn eval_blind_token_s2_plt<R: Rng>(
+        pp: &PublicParams<E>,
+        rpk: &RecPubKey<E>,
+        rtoksk: &RecTokenSecretKey<E>,
+        req: &TokenRequest<E, D>,
+        rng: &mut R,
+    ) -> Result<(BlindMacOutput<E::G1Projective, D>, TokenCiphertext<E>), Error>{
+        // Verify ciphertext proof
+        let s_ct1 = pp.g1.mul(&req.proof.z_r) - &req.blind.ct1.mul(&req.proof.c);
+        let s_ct2 = pp.g1.mul(&req.proof.z_x) + req.blind.D.mul(&req.proof.z_r) - &req.blind.ct2.mul(&req.proof.c);
+        let s_ct1h = pp.g1.mul(&req.proof.z_rh) - &req.ct.ct1.mul(&req.proof.c);
+        let s_ct2h = pp.g1.mul(&req.proof.z_x) + rpk.oapk.X1.mul(&req.proof.z_rh) - &req.ct.ct2.mul(&req.proof.c);
 
+        let mut hash_input = Vec::new();
+        let hash_bytes = to_bytes![
+                pp,
+                req.blind, rpk.oapk.X1,
+                req.ct.ct1, req.ct.ct2,
+                s_ct1.into_affine(),
+                s_ct2.into_affine(),
+                s_ct1h.into_affine(),
+                s_ct2h.into_affine()
+            ]?;
+        hash_input.extend_from_slice(&hash_bytes);
+        match E::Fr::from_random_bytes(&D::digest(&hash_input)) {
+            None => Err(Box::new(SignatureError::ProofVerificationFailed)),
+            Some(c) => {
+                if c == req.proof.c {
+                    let output = <Self as Gat<GGM<E::G1Projective, D>>>::Assoc::blind_mac_eval(&pp.mac_params(), rtoksk, &req.blind, rng)?;
+                    Ok((output, req.ct.clone()))
+                } else {
+                    Err(Box::new(SignatureError::ProofVerificationFailed))
+                }
+            },
+        }
     }
 
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use algebra::{
+        curves::{
+            bls12_381::Bls12_381,
+        },
+        fields::bls12_381::Fr,
+        UniformRand,
+    };
+    use rand::{
+        SeedableRng,
+        rngs::StdRng,
+    };
+    use sha3::Sha3_256;
+
+
+    #[test]
+    fn token_generation() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        type TokenBLS = TokenBL<Bls12_381, Sha3_256>;
+        let pp = TokenBLS::setup(&mut rng);
+        let (pltpk, pltsk) = TokenBLS::keygen_plt(&pp, &mut rng);
+        let (rpk, rsk, rtoksk) = TokenBLS::keygen_rec(&pp, &mut rng);
+        // Request token
+        let x = Fr::rand(&mut rng);
+        let (st, req) = TokenBLS::request_token_s1_user(&pp, &rpk, &x, &mut rng).unwrap();
+        // Evaluate blind token
+        assert!(TokenBLS::eval_blind_token_s2_plt(&pp, &rpk, &rtoksk, &req, &mut rng).is_ok());
+    }
+
+}

@@ -1,7 +1,7 @@
 mod algmac;
 mod error;
 pub mod groupsig;
-//pub mod token;
+pub mod token;
 
 
 
