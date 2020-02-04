@@ -242,11 +242,11 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         msg: &[u8],
         sig: &Signature<E, D>,
     ) -> Result<bool, Error> {
+        let pair_test = E::pairing(sig.ct1.clone(), oapk.X2.clone());
         // Check ciphertext against revocation list
         if rev_list.iter()
             .any(|&rt|
-                E::pairing((sig.ct2 - &rt.tok).clone(), pp.g2.clone())
-                    == E::pairing(sig.ct1.clone(), oapk.X2.clone())) {
+                E::pairing((sig.ct2 - &rt.tok).clone(), pp.g2.clone()) == pair_test) {
             return Err(Box::new(SignatureError::RevocationTokenMatch));
         }
 
