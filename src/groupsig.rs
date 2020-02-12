@@ -66,12 +66,20 @@ pub struct USecretKey<E: PairingEngine> {
 
 // Public and private key pair for opening authority
 pub struct OaPubKey<E: PairingEngine> {
-    pub X1: E::G1Projective,
-    X2: E::G2Projective,
+    pub W: E::G1Projective,
+    pub Z: E::G1Projective,
+}
+
+impl<E: PairingEngine> ToBytes for OaPubKey<E> {
+    fn write<W: Write>(self: &Self, mut writer: W) -> IoResult<()> {
+        self.W.write(&mut writer)?;
+        self.Z.write(&mut writer)
+    }
 }
 
 pub struct OaSecretKey<E: PairingEngine> {
-    pub x: E::Fr,
+    pub w: E::Fr,
+    pub z: E::Fr,
 }
 
 pub struct Signature<E: PairingEngine, D: Digest> {
@@ -80,10 +88,19 @@ pub struct Signature<E: PairingEngine, D: Digest> {
     C_u1: E::G1Projective,
     ct1: E::G1Projective,
     ct2: E::G1Projective,
+    M_1: E::G1Projective,
+    M_2: E::G2Projective,
+    N_1: E::G1Projective,
+    N_2: E::G2Projective,
+    T_1: E::G1Projective,
+    T_2: E::G1Projective,
     z_sk: E::Fr,
     z_ask: E::Fr,
     z_u1: E::Fr,
     z_ct: E::Fr,
+    z_T: E::Fr,
+    z_rm: E::Fr,
+    z_rn: E::Fr,
     c: E::Fr,
     phantom: PhantomData<D>,
 }
@@ -115,8 +132,9 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
     }
 
     pub fn keygen_oa<R: Rng>(pp: &PublicParams<E>, rng: &mut R) -> (OaPubKey<E>, OaSecretKey<E>) {
-        let x = E::Fr::rand(rng);
-        (OaPubKey{X1: pp.g1.mul(&x), X2: pp.g2.mul(&x)}, OaSecretKey{x: x})
+        let w = E::Fr::rand(rng);
+        let z = E::Fr::rand(rng);
+        (OaPubKey{W: pp.g1.mul(&w), Z: pp.g1.mul(&z)}, OaSecretKey{w: w, z: z})
     }
 
     pub fn issue_s1_user<R: Rng>(pp: &PublicParams<E>, rng: &mut R) -> (E::G1Projective, E::Fr) {
@@ -169,10 +187,21 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         rng: &mut R,
     ) -> Result<Signature<E, D>, Error> {
 
-        // Encrypt revocation token to opening authority
+        // Encrypt identity to opening authority
         let a_ct = E::Fr::rand(rng);
         let ct1 = pp.g1.mul(&a_ct);
-        let ct2 = oapk.X1.mul(&(sk.x + &a_ct));
+        let ct2 = pp.g1.mul(&sk.x) + oapk.Z.mul(&a_ct);
+
+        // Enclose revocation token in DLIN ciphertext
+        let r_m = E::Fr::rand(rng);
+        let r_n = E::Fr::rand(rng);
+        let a_T = E::Fr::rand(rng);
+        let M_1 = pp.g1.mul(&r_m);
+        let M_2 = pp.g2.mul(&r_m);
+        let N_1 = pp.g1.mul(&r_n);
+        let N_2 = pp.g2.mul(&r_n);
+        let T_1 = M_1.mul(&a_T);
+        let T_2 = oapk.W.mul(&sk.x) + N_1.mul(&a_T);
 
         // Prepare commitments for proof statement of algebraic MAC
         let a_sk = E::Fr::rand(rng);
@@ -182,34 +211,50 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         let C_sk = t_r.u0.mul(&sk.x) + pp.h1.mul(&a_sk);
 
         // Generate random commitments and challenge for Sigma protocol
-        let (r_sk, r_ask, r_u1, r_ct, c) = loop {
+        let (r_sk, r_ask, r_u1, r_ct, r_T, r_rm, r_rn, c) = loop {
             let r_sk = E::Fr::rand(rng);
             let r_ask = E::Fr::rand(rng);
             let r_u1 = E::Fr::rand(rng);
             let r_ct = E::Fr::rand(rng);
+            let r_T = E::Fr::rand(rng);
+            let r_rm = E::Fr::rand(rng);
+            let r_rn = E::Fr::rand(rng);
             let s_csk = t_r.u0.mul(&r_sk) + pp.h1.mul(&r_ask);
             let s_v = pp.g1.mul(&r_u1) + gmpk.X1.mul(&r_ask);
             let s_ct1 = pp.g1.mul(&r_ct);
-            let s_ct2 = oapk.X1.mul(&(r_sk + &r_ct));
+            let s_ct2 = pp.g1.mul(&r_sk) + oapk.Z.mul(&r_ct);
+            let s_m1 = pp.g1.mul(&r_rm);
+            let s_m2 = pp.g2.mul(&r_rm);
+            let s_n1 = pp.g1.mul(&r_rn);
+            let s_n2 = pp.g2.mul(&r_rn);
+            let s_t1 = M_1.mul(&r_T);
+            let s_t2 = oapk.W.mul(&r_sk) + N_1.mul(&r_T);
 
             // Hash statement and commitments to get challenge
             let mut hash_input = Vec::new();
             let hash_bytes = to_bytes![
                 pp,
                 gmpk,
-                oapk.X1,
+                oapk,
                 t_r.u0,
                 ct1, ct2,
+                M_1, M_2, N_1, N_2, T_1, T_2,
                 C_u1, C_sk,
                 s_csk.into_affine(),
                 s_v.into_affine(),
                 s_ct1.into_affine(),
-                s_ct2.into_affine()
+                s_ct2.into_affine(),
+                s_m1.into_affine(),
+                s_m2.into_affine(),
+                s_n1.into_affine(),
+                s_n2.into_affine(),
+                s_t1.into_affine(),
+                s_t2.into_affine()
             ]?;
             hash_input.extend_from_slice(&hash_bytes);
             hash_input.extend_from_slice(msg);
             if let Some(c) = E::Fr::from_random_bytes(&D::digest(&hash_input)) {
-                break (r_sk, r_ask, r_u1, r_ct, c);
+                break (r_sk, r_ask, r_u1, r_ct, r_T, r_rm, r_rn, c);
             };
         };
 
@@ -218,6 +263,9 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         let z_ask = r_ask + &(c * &a_sk);
         let z_u1 = r_u1 - &(c * &a_u1);
         let z_ct = r_ct + &(c * &a_ct);
+        let z_T = r_T + &(c * &a_T);
+        let z_rm = r_rm + &(c * &r_m);
+        let z_rn = r_rn + &(c * &r_n);
 
         Ok(Signature{
             u0: t_r.u0,
@@ -225,10 +273,13 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
             C_u1: C_u1,
             ct1: ct1,
             ct2: ct2,
+            M_1: M_1, M_2: M_2, N_1: N_1, N_2: N_2,
+            T_1: T_1, T_2: T_2,
             z_sk: z_sk,
             z_ask: z_ask,
             z_u1: z_u1,
             z_ct: z_ct,
+            z_T: z_T, z_rm: z_rm, z_rn: z_rn,
             c: c,
             phantom: PhantomData,
         })
@@ -242,11 +293,11 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         msg: &[u8],
         sig: &Signature<E, D>,
     ) -> Result<bool, Error> {
-        let pair_test = E::pairing(sig.ct1.clone(), oapk.X2.clone());
+        let pair_test = E::pairing(sig.T_1.clone(), sig.N_2.clone());
         // Check ciphertext against revocation list
         if rev_list.iter()
             .any(|&rt|
-                E::pairing((sig.ct2 - &rt.tok).clone(), pp.g2.clone()) == pair_test) {
+                E::pairing((sig.T_2 - &rt.tok).clone(), sig.M_2.clone()) == pair_test) {
             return Err(Box::new(SignatureError::RevocationTokenMatch));
         }
 
@@ -255,20 +306,33 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         let s_csk = sig.u0.mul(&sig.z_sk) + pp.h1.mul(&sig.z_ask) - &sig.C_sk.mul(&sig.c);
         let s_v = pp.g1.mul(&sig.z_u1) + gmsk.pk.X1.mul(&sig.z_ask) - &V.mul(&sig.c);
         let s_ct1 = pp.g1.mul(&sig.z_ct) - &sig.ct1.mul(&sig.c);
-        let s_ct2 = oapk.X1.mul(&(sig.z_sk + &sig.z_ct)) - &sig.ct2.mul(&sig.c);
+        let s_ct2 = pp.g1.mul(&sig.z_sk) + oapk.Z.mul(&sig.z_ct) - &sig.ct2.mul(&sig.c);
+        let s_m1 = pp.g1.mul(&sig.z_rm) - &sig.M_1.mul(&sig.c);
+        let s_m2 = pp.g2.mul(&sig.z_rm) - &sig.M_2.mul(&sig.c);
+        let s_n1 = pp.g1.mul(&sig.z_rn) - &sig.N_1.mul(&sig.c);
+        let s_n2 = pp.g2.mul(&sig.z_rn) - &sig.N_2.mul(&sig.c);
+        let s_t1 = sig.M_1.mul(&sig.z_T) - &sig.T_1.mul(&sig.c);
+        let s_t2 = oapk.W.mul(&sig.z_sk) + sig.N_1.mul(&sig.z_T) - &sig.T_2.mul(&sig.c);
 
         let mut hash_input = Vec::new();
         let hash_bytes = to_bytes![
                 pp,
                 gmsk.pk,
-                oapk.X1,
+                oapk,
                 sig.u0,
                 sig.ct1, sig.ct2,
+                sig.M_1, sig.M_2, sig.N_1, sig.N_2, sig.T_1, sig.T_2,
                 sig.C_u1, sig.C_sk,
                 s_csk.into_affine(),
                 s_v.into_affine(),
                 s_ct1.into_affine(),
-                s_ct2.into_affine()
+                s_ct2.into_affine(),
+                s_m1.into_affine(),
+                s_m2.into_affine(),
+                s_n1.into_affine(),
+                s_n2.into_affine(),
+                s_t1.into_affine(),
+                s_t2.into_affine()
             ]?;
         hash_input.extend_from_slice(&hash_bytes);
         hash_input.extend_from_slice(msg);
@@ -290,7 +354,7 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         sig: &Signature<E, D>,
     ) -> UPubKey<E> {
         UPubKey{
-            X: (sig.ct2 - &sig.ct1.mul(&oask.x)).mul(&(oask.x.inverse().unwrap())).clone(),
+            X: sig.ct2 - &sig.ct1.mul(&oask.z),
         }
     }
 
@@ -299,7 +363,7 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         oask:&OaSecretKey<E>,
         upk: &UPubKey<E>,
     ) -> RevocationToken<E> {
-        RevocationToken{tok: upk.X.mul(&oask.x)}
+        RevocationToken{tok: upk.X.mul(&oask.w)}
     }
 
 }

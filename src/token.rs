@@ -145,7 +145,7 @@ impl<E: PairingEngine, D: Digest> TokenBL<E, D> {
         // Create ciphertext to recipient enclosing token input
         let rh = E::Fr::rand(rng);
         let ct1h = pp.g1.mul(&rh);
-        let ct2h = pp.g1.mul(x) + rpk.oapk.X1.mul(&rh);
+        let ct2h = pp.g1.mul(x) + rpk.oapk.Z.mul(&rh);
 
         // Prove ciphertext formed correctly
         // Generate random commitments and challenge for Sigma protocol
@@ -157,12 +157,12 @@ impl<E: PairingEngine, D: Digest> TokenBL<E, D> {
             let s_ct1 = pp.g1.mul(&r_r);
             let s_ct2 = pp.g1.mul(&r_x) + st.input.D.mul(&r_r);
             let s_ct1h = pp.g1.mul(&r_rh);
-            let s_ct2h = pp.g1.mul(&r_x) + rpk.oapk.X1.mul(&r_rh);
+            let s_ct2h = pp.g1.mul(&r_x) + rpk.oapk.Z.mul(&r_rh);
 
             let mut hash_input = Vec::new();
             let hash_bytes = to_bytes![
                 pp,
-                blind, rpk.oapk.X1,
+                blind, rpk.oapk.Z,
                 ct1h, ct2h,
                 s_ct1.into_affine(),
                 s_ct2.into_affine(),
@@ -203,12 +203,12 @@ impl<E: PairingEngine, D: Digest> TokenBL<E, D> {
         let s_ct1 = pp.g1.mul(&req.proof.z_r) - &req.blind.ct1.mul(&req.proof.c);
         let s_ct2 = pp.g1.mul(&req.proof.z_x) + req.blind.D.mul(&req.proof.z_r) - &req.blind.ct2.mul(&req.proof.c);
         let s_ct1h = pp.g1.mul(&req.proof.z_rh) - &req.ct.ct1.mul(&req.proof.c);
-        let s_ct2h = pp.g1.mul(&req.proof.z_x) + rpk.oapk.X1.mul(&req.proof.z_rh) - &req.ct.ct2.mul(&req.proof.c);
+        let s_ct2h = pp.g1.mul(&req.proof.z_x) + rpk.oapk.Z.mul(&req.proof.z_rh) - &req.ct.ct2.mul(&req.proof.c);
 
         let mut hash_input = Vec::new();
         let hash_bytes = to_bytes![
                 pp,
-                req.blind, rpk.oapk.X1,
+                req.blind, rpk.oapk.Z,
                 req.ct.ct1, req.ct.ct2,
                 s_ct1.into_affine(),
                 s_ct2.into_affine(),

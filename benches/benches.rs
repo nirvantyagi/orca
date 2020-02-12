@@ -137,8 +137,8 @@ fn bench_send_sealed_sender(b: &mut Bencher) {
     // Encapsulate sender identity
     b.iter(|| {
         let e_sk = Fr::rand(&mut rng);
-        let e_dh = oapk.X1.mul(&e_sk);
-        let shared_dh = oapk.X1.mul(&sk.x);
+        let e_dh = oapk.Z.mul(&e_sk);
+        let shared_dh = oapk.Z.mul(&sk.x);
     });
 }
 
@@ -155,8 +155,8 @@ fn bench_receive_sealed_sender(b: &mut Bencher) {
     let e_pk = G1Projective::prime_subgroup_generator().mul(&Fr::rand(&mut rng));
     // Decapsulate sender identity
     b.iter(|| {
-        let e_dh = e_pk.mul(&oask.x);
-        let shared_dh = pk.X.mul(&oask.x);
+        let e_dh = e_pk.mul(&oask.z);
+        let shared_dh = pk.X.mul(&oask.z);
     });
 }
 
