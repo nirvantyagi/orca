@@ -52,7 +52,7 @@ fn bench_request_token(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_verify_token(b: &mut Bencher) {
+fn bench_verify_issue_token(b: &mut Bencher) {
     let mut rng = StdRng::seed_from_u64(0u64);
     type TokenBLS = TokenBL<Bls12_381, Sha3_256>;
     let pp = TokenBLS::setup(&mut rng);
@@ -76,6 +76,19 @@ fn bench_issue_token(b: &mut Bencher) {
     // Issue token from request
     b.iter(|| TokenBLS::eval_blind_token_s2_plt(&pp, &rpk, &rtoksk, &req, &mut rng));
 }
+
+#[bench]
+fn bench_verify_spend_token(b: &mut Bencher) {
+    let mut rng = StdRng::seed_from_u64(0u64);
+    type AlgMacG1 = GGM<G1Projective, Sha3_256>;
+    let pp = AlgMacG1::setup(&G1Projective::prime_subgroup_generator(), &mut rng);
+    let (_, sk) = AlgMacG1::keygen(&pp, &mut rng);
+    let m = Fr::rand(&mut rng);
+    let M = pp.g.mul(&m);
+    let t = AlgMacG1::group_elem_mac(&pp, &sk, &M, &mut rng);
+    b.iter(|| AlgMacG1::verify_mac(&pp, &sk, &m, &t));
+}
+
 
 fn bench_verify_group_signature(b: &mut Bencher, l: i8) {
     let mut rng = StdRng::seed_from_u64(0u64);
