@@ -183,6 +183,24 @@ fn bench_trace_group_signature(b: &mut Bencher) {
 }
 
 #[bench]
+fn bench_trace_group_signature_10(b: &mut Bencher) {
+    let mut rng = StdRng::seed_from_u64(0u64);
+    type GroupSigBLS = GroupSig<Bls12_381, Sha3_256>;
+    let pp = GroupSigBLS::setup(&mut rng);
+    let (gmpk, gmsk) = GroupSigBLS::keygen_gm(&pp, &mut rng);
+    let (oapk, oask) = GroupSigBLS::keygen_oa(&pp, &mut rng);
+    let (pk_s1, sk_s1) = GroupSigBLS::issue_s1_user(&pp, &mut rng);
+    let (t, proof, _) = GroupSigBLS::issue_s2_gm(&pp, &gmsk, &pk_s1, &mut rng).unwrap();
+    let sk = GroupSigBLS::issue_s3_user(&pp, &gmpk, &sk_s1, &t, &proof).unwrap();
+    let m1 = "Plaintext".as_bytes();
+    let sig = GroupSigBLS::sign(&pp, &gmpk, &oapk, &sk, m1, &mut rng).unwrap();
+    b.iter(|| for _ in 0..10 {
+        GroupSigBLS::trace(&pp, &oask, &sig);
+        ()
+    });
+}
+
+#[bench]
 fn bench_send_sealed_sender(b: &mut Bencher) {
     let mut rng = StdRng::seed_from_u64(0u64);
     type GroupSigBLS = GroupSig<Bls12_381, Sha3_256>;
