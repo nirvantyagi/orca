@@ -78,6 +78,51 @@ fn bench_issue_token(b: &mut Bencher) {
 }
 
 #[bench]
+fn bench_request_token_10(b: &mut Bencher) {
+    let mut rng = StdRng::seed_from_u64(0u64);
+    type TokenBLS = TokenBL<Bls12_381, Sha3_256>;
+    let pp = TokenBLS::setup(&mut rng);
+    let (rpk, rsk, rtoksk) = TokenBLS::keygen_rec(&pp, &mut rng);
+    let x = Fr::rand(&mut rng);
+    // Prepare token request
+    b.iter(|| for _ in 0..10 {
+        TokenBLS::request_token_s1_user(&pp, &rpk, &x, &mut rng);
+        ()
+    });
+}
+
+#[bench]
+fn bench_issue_token_10(b: &mut Bencher) {
+    let mut rng = StdRng::seed_from_u64(0u64);
+    type TokenBLS = TokenBL<Bls12_381, Sha3_256>;
+    let pp = TokenBLS::setup(&mut rng);
+    let (rpk, rsk, rtoksk) = TokenBLS::keygen_rec(&pp, &mut rng);
+    let x = Fr::rand(&mut rng);
+    let (st, req) = TokenBLS::request_token_s1_user(&pp, &rpk, &x, &mut rng).unwrap();
+    // Issue token from request
+    b.iter(|| for _ in 0..10 {
+        TokenBLS::eval_blind_token_s2_plt(&pp, &rpk, &rtoksk, &req, &mut rng);
+        ()
+    });
+}
+
+#[bench]
+fn bench_verify_issue_token_10(b: &mut Bencher) {
+    let mut rng = StdRng::seed_from_u64(0u64);
+    type TokenBLS = TokenBL<Bls12_381, Sha3_256>;
+    let pp = TokenBLS::setup(&mut rng);
+    let (rpk, rsk, rtoksk) = TokenBLS::keygen_rec(&pp, &mut rng);
+    let x = Fr::rand(&mut rng);
+    let (st, req) = TokenBLS::request_token_s1_user(&pp, &rpk, &x, &mut rng).unwrap();
+    let (out, ct) = TokenBLS::eval_blind_token_s2_plt(&pp, &rpk, &rtoksk, &req, &mut rng).unwrap();
+    // Verify issued token
+    b.iter(|| for _ in 0..10 {
+        <TokenBLS as Gat<GGM<G1Projective, Sha3_256>>>::Assoc::blind_mac_verify_output(&pp.mac_params(), &rpk.tokpk, &st, &out);
+        ()
+    });
+}
+
+#[bench]
 fn bench_verify_spend_token(b: &mut Bencher) {
     let mut rng = StdRng::seed_from_u64(0u64);
     type AlgMacG1 = GGM<G1Projective, Sha3_256>;
