@@ -376,13 +376,17 @@ mod tests {
     use algebra::{
         curves::{
             bls12_381::Bls12_381,
+            bls12_381::G1Affine,
+            bls12_381::G2Affine,
         },
+        fields::bls12_381::Fr,
     };
     use rand::{
         SeedableRng,
         rngs::StdRng,
     };
     use sha3::Sha3_256;
+    use std::mem;
 
 
     #[test]
@@ -464,4 +468,11 @@ mod tests {
         assert!(GroupSigBLS::verify(&pp, &gmsk, &oapk, &vec![rt.clone(), rt2.clone()], m1, &sig).is_err());
     }
 
+    #[test]
+    fn bandwidth() {
+        assert_eq!(104, mem::size_of::<G1Affine>());
+        assert_eq!(200, mem::size_of::<G2Affine>());
+        assert_eq!(32, mem::size_of::<Fr>());
+
+    }
 }
