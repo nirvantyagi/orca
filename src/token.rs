@@ -66,8 +66,8 @@ pub struct TokenRequest<E: PairingEngine, D: Digest> {
 
 #[derive(Clone)]
 pub struct TokenCiphertext<E: PairingEngine> {
-    ct1: E::G1Projective,
-    ct2: E::G1Projective,
+    pub ct1: E::G1Projective,
+    pub ct2: E::G1Projective,
 }
 
 pub struct TokenEnclosedProof<E: PairingEngine, D: Digest> {

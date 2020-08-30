@@ -86,14 +86,15 @@ pub struct Signature<E: PairingEngine, D: Digest> {
     u0: E::G1Projective,
     C_sk: E::G1Projective,
     C_u1: E::G1Projective,
+    V: E::G1Projective,
     ct1: E::G1Projective,
     ct2: E::G1Projective,
     M_1: E::G1Projective,
-    M_2: E::G2Projective,
+    pub M_2: E::G2Projective,
     N_1: E::G1Projective,
-    N_2: E::G2Projective,
-    T_1: E::G1Projective,
-    T_2: E::G1Projective,
+    pub N_2: E::G2Projective,
+    pub T_1: E::G1Projective,
+    pub T_2: E::G1Projective,
     z_sk: E::Fr,
     z_ask: E::Fr,
     z_u1: E::Fr,
@@ -209,6 +210,7 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         let t_r = sk.t.rerandomize(&E::Fr::rand(rng));
         let C_u1 = t_r.u1 + pp.g1.mul(&a_u1);
         let C_sk = t_r.u0.mul(&sk.x) + pp.h1.mul(&a_sk);
+        let V = pp.g1.mul(&-a_u1) + gmpk.X1.mul(&a_sk);
 
         // Generate random commitments and challenge for Sigma protocol
         let (r_sk, r_ask, r_u1, r_ct, r_T, r_rm, r_rn, c) = loop {
@@ -271,6 +273,7 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
             u0: t_r.u0,
             C_sk: C_sk,
             C_u1: C_u1,
+            V: V,
             ct1: ct1,
             ct2: ct2,
             M_1: M_1, M_2: M_2, N_1: N_1, N_2: N_2,
@@ -339,7 +342,7 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         match E::Fr::from_random_bytes(&D::digest(&hash_input)) {
             None => Err(Box::new(SignatureError::ProofVerificationFailed)),
             Some(c) => {
-                if c == sig.c {
+                if c == sig.c && V.into_affine() == sig.V.into_affine() {
                     Ok(true)
                 } else {
                     Err(Box::new(SignatureError::ProofVerificationFailed))
@@ -351,10 +354,57 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
     pub fn trace(
         pp: &PublicParams<E>,
         oask: &OaSecretKey<E>,
+        gmpk: &GmPubKey<E>,
+        msg: &[u8],
         sig: &Signature<E, D>,
-    ) -> UPubKey<E> {
-        UPubKey{
-            X: sig.ct2 - &sig.ct1.mul(&oask.z),
+    ) -> Result<UPubKey<E>, Error> {
+
+        let oapk: OaPubKey<E> = OaPubKey{W: pp.g1.mul(&oask.w), Z: pp.g1.mul(&oask.z)};
+        // Verify proof
+        let s_csk = sig.u0.mul(&sig.z_sk) + pp.h1.mul(&sig.z_ask) - &sig.C_sk.mul(&sig.c);
+        let s_v = pp.g1.mul(&sig.z_u1) + gmpk.X1.mul(&sig.z_ask) - &sig.V.mul(&sig.c);
+        let s_ct1 = pp.g1.mul(&sig.z_ct) - &sig.ct1.mul(&sig.c);
+        let s_ct2 = pp.g1.mul(&sig.z_sk) + oapk.Z.mul(&sig.z_ct) - &sig.ct2.mul(&sig.c);
+        let s_m1 = pp.g1.mul(&sig.z_rm) - &sig.M_1.mul(&sig.c);
+        let s_m2 = pp.g2.mul(&sig.z_rm) - &sig.M_2.mul(&sig.c);
+        let s_n1 = pp.g1.mul(&sig.z_rn) - &sig.N_1.mul(&sig.c);
+        let s_n2 = pp.g2.mul(&sig.z_rn) - &sig.N_2.mul(&sig.c);
+        let s_t1 = sig.M_1.mul(&sig.z_T) - &sig.T_1.mul(&sig.c);
+        let s_t2 = oapk.W.mul(&sig.z_sk) + sig.N_1.mul(&sig.z_T) - &sig.T_2.mul(&sig.c);
+
+        let mut hash_input = Vec::new();
+        let hash_bytes = to_bytes![
+                pp,
+                gmpk,
+                oapk,
+                sig.u0,
+                sig.ct1, sig.ct2,
+                sig.M_1, sig.M_2, sig.N_1, sig.N_2, sig.T_1, sig.T_2,
+                sig.C_u1, sig.C_sk,
+                s_csk.into_affine(),
+                s_v.into_affine(),
+                s_ct1.into_affine(),
+                s_ct2.into_affine(),
+                s_m1.into_affine(),
+                s_m2.into_affine(),
+                s_n1.into_affine(),
+                s_n2.into_affine(),
+                s_t1.into_affine(),
+                s_t2.into_affine()
+            ]?;
+        hash_input.extend_from_slice(&hash_bytes);
+        hash_input.extend_from_slice(msg);
+        match E::Fr::from_random_bytes(&D::digest(&hash_input)) {
+            None => Err(Box::new(SignatureError::ProofVerificationFailed)),
+            Some(c) => {
+                if c == sig.c {
+                    Ok(UPubKey{
+                        X: sig.ct2 - &sig.ct1.mul(&oask.z),
+                    })
+                } else {
+                    Err(Box::new(SignatureError::ProofVerificationFailed))
+                }
+            },
         }
     }
 
@@ -439,7 +489,7 @@ mod tests {
         let m1 = "Plaintext".as_bytes();
         let sig = GroupSigBLS::sign(&pp, &gmpk, &oapk, &sk, m1, &mut rng).unwrap();
         // Trace message
-        let upk = GroupSigBLS::trace(&pp, &oask, &sig);
+        let upk = GroupSigBLS::trace(&pp, &oask, &gmpk, m1, &sig).unwrap();
         assert!(upk.X == pk.X);
     }
 

@@ -143,6 +143,18 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
         (pk, sk)
     }
 
+    pub fn scalar_mac<R: Rng>(
+        pp: &PublicParams<G>,
+        sk: &SecretKey<G>,
+        m: &G::ScalarField,
+        rng: &mut R,
+    ) -> Mac<G> {
+        Mac {
+            u0: pp.g,
+            u1: pp.g.mul(&(sk.x0 + &(sk.x1 * m))),
+        }.rerandomize(&G::ScalarField::rand(rng))
+    }
+
     // MACs "M" where "M" in G
     pub fn group_elem_mac<R: Rng>(
         pp: &PublicParams<G>,
