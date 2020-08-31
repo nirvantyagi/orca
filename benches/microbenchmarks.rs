@@ -181,11 +181,7 @@ fn main() {
 
 
 fn print_benchmark_statistics(times: &[f64]) {
-    println!("\t Trials: {}", times.len());
-    println!("\t Median: {}", times.median());
-    println!("\t Mean: {}", times.mean());
-    println!("\t Min: {}", times.min());
-    println!("\t Max: {}", times.max());
-    println!("\t StdDev: {}", times.std_dev());
+    println!("   {} trials -- median: {}\tmean: {}\tmin: {}\tmax: {}\tstddev: {}",
+    times.len(), times.median(), times.mean(), times.min(), times.max(), times.std_dev());
 }
 
