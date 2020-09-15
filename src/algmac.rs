@@ -1,6 +1,6 @@
 use crate::error::{Error, SignatureError};
 use algebra::{
-    bytes::ToBytes,
+    bytes::{ToBytes, FromBytes},
     curves::ProjectiveCurve,
     groups::Group,
     fields::PrimeField,
@@ -9,7 +9,7 @@ use algebra::{
 use digest::Digest;
 use rand::Rng;
 use std::{
-    io::{Result as IoResult, Write},
+    io::{Result as IoResult, Write, Read},
     marker::PhantomData,
     vec::Vec,
 };
@@ -37,6 +37,15 @@ pub struct PubKey<G: ProjectiveCurve> {
     pub X1: G,
 }
 
+impl<G: ProjectiveCurve> FromBytes for PubKey<G> {
+    fn read<R: Read>(mut reader: R) -> IoResult<Self> {
+        let CX0 = G::read(&mut reader)?;
+        let X1 = G::read(&mut reader)?;
+        Ok(Self { CX0, X1 })
+    }
+}
+
+
 impl<G: ProjectiveCurve> ToBytes for PubKey<G> {
     fn write<W: Write>(self: &Self, mut writer: W) -> IoResult<()> {
         self.CX0.write(&mut writer)?;
@@ -50,6 +59,25 @@ pub struct SecretKey<G: ProjectiveCurve> {
     pub x1: G::ScalarField,
     pub xt: G::ScalarField,
     pub pk: PubKey<G>,
+}
+
+impl<G: ProjectiveCurve> FromBytes for SecretKey<G> {
+    fn read<R: Read>(mut reader: R) -> IoResult<Self> {
+        let x0 = <G::ScalarField>::read(&mut reader)?;
+        let x1 = <G::ScalarField>::read(&mut reader)?;
+        let xt = <G::ScalarField>::read(&mut reader)?;
+        let pk = PubKey::<G>::read(&mut reader)?;
+        Ok(Self { x0, x1, xt, pk })
+    }
+}
+
+impl<G: ProjectiveCurve> ToBytes for SecretKey<G> {
+    fn write<W: Write>(self: &Self, mut writer: W) -> IoResult<()> {
+        self.x0.write(&mut writer)?;
+        self.x1.write(&mut writer)?;
+        self.xt.write(&mut writer)?;
+        self.pk.write(&mut writer)
+    }
 }
 
 #[derive(Clone)]

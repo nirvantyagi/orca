@@ -5,7 +5,7 @@ use crate::{
         SecretKey as MacSecretKey,
         Mac, MacProof,
         BlindMacInput, BlindMacState,
-        BlindMacOutput, BlindMacProof,
+        BlindMacOutput,
     },
     error::{Error, SignatureError},
     groupsig::{
@@ -14,12 +14,11 @@ use crate::{
         GmPubKey, GmSecretKey,
         OaPubKey, OaSecretKey,
         UPubKey as GSUPubKey, USecretKey as GSUSecretKey,
-        Signature, RevocationToken,
     },
     Gat,
 };
 use algebra::{
-    bytes::ToBytes,
+    bytes::{ToBytes, FromBytes},
     curves::{PairingEngine, ProjectiveCurve},
     groups::Group,
     fields::PrimeField,
@@ -28,7 +27,7 @@ use algebra::{
 use digest::Digest;
 use rand::Rng;
 use std::{
-    io::{Result as IoResult, Write},
+    io::{Result as IoResult, Write, Read},
     marker::PhantomData,
     vec::Vec,
 };
@@ -45,6 +44,22 @@ pub struct RecPubKey<E: PairingEngine> {
     pub oapk: OaPubKey<E>,
     pub tokpk: MacPubKey<E::G1Projective>,
 }
+
+impl<E: PairingEngine> ToBytes for RecPubKey<E> {
+    fn write<W: Write>(self: &Self, mut writer: W) -> IoResult<()> {
+        self.oapk.write(&mut writer)?;
+        self.tokpk.write(&mut writer)
+    }
+}
+
+impl<E: PairingEngine> FromBytes for RecPubKey<E> {
+    fn read<R: Read>(mut reader: R) -> IoResult<Self> {
+        let oapk = OaPubKey::<E>::read(&mut reader)?;
+        let tokpk = MacPubKey::<E::G1Projective>::read(&mut reader)?;
+        Ok(Self{ oapk, tokpk })
+    }
+}
+
 
 pub type RecSecretKey<E: PairingEngine> = OaSecretKey<E>;
 pub type RecTokenSecretKey<E> = MacSecretKey<<E as PairingEngine>::G1Projective>;
@@ -64,10 +79,25 @@ pub struct TokenRequest<E: PairingEngine, D: Digest> {
     proof: TokenEnclosedProof<E, D>,
 }
 
+impl<E: PairingEngine, D: Digest> ToBytes for TokenRequest<E, D> {
+    fn write<W: Write>(self: &Self, mut writer: W) -> IoResult<()> {
+        self.blind.write(&mut writer)?;
+        self.ct.write(&mut writer)?;
+        self.proof.write(&mut writer)
+    }
+}
+
 #[derive(Clone)]
 pub struct TokenCiphertext<E: PairingEngine> {
     pub ct1: E::G1Projective,
     pub ct2: E::G1Projective,
+}
+
+impl<E: PairingEngine> ToBytes for TokenCiphertext<E> {
+    fn write<W: Write>(self: &Self, mut writer: W) -> IoResult<()> {
+        self.ct1.write(&mut writer)?;
+        self.ct2.write(&mut writer)
+    }
 }
 
 pub struct TokenEnclosedProof<E: PairingEngine, D: Digest> {
@@ -76,6 +106,15 @@ pub struct TokenEnclosedProof<E: PairingEngine, D: Digest> {
     z_rh: E::Fr,
     c: E::Fr,
     phantom: PhantomData<D>,
+}
+
+impl<E: PairingEngine, D: Digest> ToBytes for TokenEnclosedProof<E, D> {
+    fn write<W: Write>(self: &Self, mut writer: W) -> IoResult<()> {
+        self.z_x.write(&mut writer)?;
+        self.z_r.write(&mut writer)?;
+        self.z_rh.write(&mut writer)?;
+        self.c.write(&mut writer)
+    }
 }
 
 

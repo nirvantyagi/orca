@@ -11,16 +11,16 @@ use crate::{
     Gat,
 };
 use algebra::{
-    bytes::ToBytes,
+    bytes::{ToBytes, FromBytes},
     curves::{PairingEngine, ProjectiveCurve},
     groups::Group,
-    fields::{Field, PrimeField},
+    fields::{PrimeField},
     to_bytes, UniformRand,
 };
 use digest::Digest;
 use rand::Rng;
 use std::{
-    io::{Result as IoResult, Write},
+    io::{Result as IoResult, Write, Read},
     marker::PhantomData
 };
 
@@ -70,6 +70,15 @@ pub struct OaPubKey<E: PairingEngine> {
     pub Z: E::G1Projective,
 }
 
+impl<E: PairingEngine> FromBytes for OaPubKey<E> {
+    fn read<R: Read>(mut reader: R) -> IoResult<Self> {
+        let W = E::G1Projective::read(&mut reader)?;
+        let Z = E::G1Projective::read(&mut reader)?;
+        Ok(Self { W, Z })
+    }
+}
+
+
 impl<E: PairingEngine> ToBytes for OaPubKey<E> {
     fn write<W: Write>(self: &Self, mut writer: W) -> IoResult<()> {
         self.W.write(&mut writer)?;
@@ -110,6 +119,7 @@ pub struct Signature<E: PairingEngine, D: Digest> {
 pub struct RevocationToken<E: PairingEngine> {
     pub tok: E::G1Projective,
 }
+
 
 // TODO: associated types not allowed in inherent impls - better way to keep GGM around?
 impl<E: PairingEngine, D: Digest> Gat<GGM<E::G1Projective, D>> for GroupSig<E, D> {
