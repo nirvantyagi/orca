@@ -34,10 +34,13 @@ use std::{
 
 pub struct TokenBL<E: PairingEngine, D: Digest>(PhantomData<E>, PhantomData<D>);
 
+#[allow(type_alias_bounds)]
 pub type PublicParams<E: PairingEngine> = GSPublicParams<E>;
 
+#[allow(type_alias_bounds)]
 pub type PltPubKey<E: PairingEngine> = GmPubKey<E>;
 
+#[allow(type_alias_bounds)]
 pub type PltSecretKey<E: PairingEngine> = GmSecretKey<E>;
 
 pub struct RecPubKey<E: PairingEngine> {
@@ -61,13 +64,17 @@ impl<E: PairingEngine> FromBytes for RecPubKey<E> {
 }
 
 
+#[allow(type_alias_bounds)]
 pub type RecSecretKey<E: PairingEngine> = OaSecretKey<E>;
 pub type RecTokenSecretKey<E> = MacSecretKey<<E as PairingEngine>::G1Projective>;
 
+#[allow(type_alias_bounds)]
 pub type SndPubKey<E: PairingEngine> = GSUPubKey<E>;
+#[allow(type_alias_bounds)]
 pub type SndSecretKey<E: PairingEngine> = GSUSecretKey<E>;
 
 
+#[allow(dead_code)]
 pub struct Token<E: PairingEngine> {
     x: E::Fr,
     t: E::G1Projective,
@@ -154,6 +161,7 @@ impl<E: PairingEngine, D: Digest> TokenBL<E, D> {
         <Self as Gat<GroupSig<E, D>>>::Assoc::issue_s1_user(pp, rng)
     }
 
+    #[allow(non_snake_case)]
     pub fn register_s2_plt<R: Rng>(
         pp: &PublicParams<E>,
         sk: &PltSecretKey<E>,
@@ -292,11 +300,10 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0u64);
         type TokenBLS = TokenBL<Bls12_381, Sha3_256>;
         let pp = TokenBLS::setup(&mut rng);
-        let (pltpk, pltsk) = TokenBLS::keygen_plt(&pp, &mut rng);
-        let (rpk, rsk, rtoksk) = TokenBLS::keygen_rec(&pp, &mut rng);
+        let (rpk, _rsk, rtoksk) = TokenBLS::keygen_rec(&pp, &mut rng);
         // Request token
         let x = Fr::rand(&mut rng);
-        let (st, req) = TokenBLS::request_token_s1_user(&pp, &rpk, &x, &mut rng).unwrap();
+        let (_st, req) = TokenBLS::request_token_s1_user(&pp, &rpk, &x, &mut rng).unwrap();
         // Evaluate blind token
         assert!(TokenBLS::eval_blind_token_s2_plt(&pp, &rpk, &rtoksk, &req, &mut rng).is_ok());
     }

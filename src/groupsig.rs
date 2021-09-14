@@ -55,6 +55,7 @@ pub type GmSecretKey<E> = MacSecretKey<<E as PairingEngine>::G1Projective>;
 
 // Public and private key pair for group member
 #[derive(Clone)]
+#[allow(non_snake_case)]
 pub struct UPubKey<E: PairingEngine> {
     pub X: E::G1Projective,
 }
@@ -65,11 +66,13 @@ pub struct USecretKey<E: PairingEngine> {
 }
 
 // Public and private key pair for opening authority
+#[allow(non_snake_case)]
 pub struct OaPubKey<E: PairingEngine> {
     pub W: E::G1Projective,
     pub Z: E::G1Projective,
 }
 
+#[allow(non_snake_case)]
 impl<E: PairingEngine> FromBytes for OaPubKey<E> {
     fn read<R: Read>(mut reader: R) -> IoResult<Self> {
         let W = E::G1Projective::read(&mut reader)?;
@@ -91,6 +94,7 @@ pub struct OaSecretKey<E: PairingEngine> {
     pub z: E::Fr,
 }
 
+#[allow(non_snake_case)]
 pub struct Signature<E: PairingEngine, D: Digest> {
     u0: E::G1Projective,
     C_sk: E::G1Projective,
@@ -153,6 +157,7 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         (pp.g1.mul(&x), x)
     }
 
+    #[allow(non_snake_case)]
     pub fn issue_s2_gm<R: Rng>(
         pp: &PublicParams<E>,
         sk: &GmSecretKey<E>,
@@ -189,6 +194,7 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         }
     }
 
+    #[allow(non_snake_case)]
     pub fn sign<R: Rng>(
         pp: &PublicParams<E>,
         gmpk: &GmPubKey<E>,
@@ -298,6 +304,7 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
         })
     }
 
+    #[allow(non_snake_case)]
     pub fn verify(
         pp: &PublicParams<E>,
         gmsk: &GmSecretKey<E>,
@@ -419,7 +426,7 @@ impl<E: PairingEngine, D: Digest> GroupSig<E, D> {
     }
 
     pub fn revoke(
-        pp: &PublicParams<E>,
+        _pp: &PublicParams<E>,
         oask:&OaSecretKey<E>,
         upk: &UPubKey<E>,
     ) -> RevocationToken<E> {

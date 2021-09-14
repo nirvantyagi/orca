@@ -5,17 +5,14 @@ use orca::{
     algmac::{GGM, Mac},
     groupsig::{GroupSig, RevocationToken, Signature},
     token::{RecPubKey, RecTokenSecretKey, TokenBL, TokenRequest},
-    Gat,
 };
 
 use algebra::{
     curves::{
         bls12_381::{Bls12_381, G1Projective},
-        ProjectiveCurve,
         PairingEngine,
     },
     fields::bls12_381::Fr,
-    groups::Group,
     UniformRand,
     bytes::{ToBytes, FromBytes}, to_bytes,
 };
@@ -24,7 +21,6 @@ use sha3::Sha3_256;
 use redis::Commands;
 use rayon::prelude::*;
 use std::{
-    default::Default,
     time::Instant,
 };
 use num_cpus;
@@ -82,7 +78,7 @@ fn main() {
             .for_each(|i| {
                 let mut rng = StdRng::seed_from_u64(i as u64);
                 let mut conn = pool.clone().get().unwrap();
-                let (rpk, rsk, toksk) = TokenBLS::keygen_rec(&pp, &mut rng);
+                let (rpk, _rsk, toksk) = TokenBLS::keygen_rec(&pp, &mut rng);
 
                 // Store recipient keys (Redis key 4i and 4i+1)
                 conn.set::<usize, Vec<u8>, ()>(4 * i, to_bytes![&rpk].unwrap()).unwrap();
@@ -112,7 +108,7 @@ fn main() {
                 let mut rng = StdRng::seed_from_u64((num_users + i) as u64);
                 let mut conn = pool.clone().get().unwrap();
                 let (pk_s1, sk_s1) = GroupSigBLS::issue_s1_user(&pp, &mut rng);
-                let (t, proof, upk) = GroupSigBLS::issue_s2_gm(&pp, &gmsk, &pk_s1, &mut rng).unwrap();
+                let (t, proof, _upk) = GroupSigBLS::issue_s2_gm(&pp, &gmsk, &pk_s1, &mut rng).unwrap();
                 let usk = GroupSigBLS::issue_s3_user(&pp, &gmpk, &sk_s1, &t, &proof).unwrap();
 
                 let j = rng.gen_range(0, num_users);

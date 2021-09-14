@@ -3,7 +3,7 @@ extern crate test;
 
 use orca::{
     algmac::GGM,
-    groupsig::{GroupSig, RevocationToken},
+    groupsig::{GroupSig},
     token::TokenBL,
     Gat,
 };
@@ -24,12 +24,11 @@ use rand::{
 };
 use sha3::Sha3_256;
 use std::{
-    default::Default,
     time::Instant,
 };
-//use test::stats::Stats;
 use test::stats::*;
 
+#[allow(unused_must_use)]
 fn main() {
     const NUM_TRIALS: usize = 10;
     let mut rng = StdRng::seed_from_u64(0u64);
@@ -95,7 +94,6 @@ fn main() {
 
     for i in 0..NUM_TRIALS {
         let pp = TokenBLS::setup(&mut rng);
-        let (pltpk, pltsk) = TokenBLS::keygen_plt(&pp, &mut rng);
         let (rpk, rsk, rtoksk) = TokenBLS::keygen_rec(&pp, &mut rng);
         // Request token
         start = Instant::now();
@@ -130,9 +128,9 @@ fn main() {
     sender_times = Vec::new();
     platform_times = Vec::new();
 
-    for i in 0..NUM_TRIALS {
+    for _ in 0..NUM_TRIALS {
         let pp = MACBLS::setup(&G1Projective::prime_subgroup_generator(), &mut rng);
-        let (pk, sk) = MACBLS::keygen(&pp, &mut rng);
+        let (_pk, sk) = MACBLS::keygen(&pp, &mut rng);
         // Generate new token (sender cost)
         start = Instant::now();
         let x = Fr::rand(&mut rng);
@@ -154,7 +152,7 @@ fn main() {
     // Sealed sender
     sender_times = Vec::new();
     recipient_times = Vec::new();
-    for i in 0..NUM_TRIALS {
+    for _ in 0..NUM_TRIALS {
         let sk_s = Fr::rand(&mut rng);
         let pk_r = G1Projective::rand(&mut rng);
         // Sealed sender send

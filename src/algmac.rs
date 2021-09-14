@@ -32,11 +32,13 @@ impl<G: ProjectiveCurve> ToBytes for PublicParams<G> {
 
 // Public and private MAC key pair
 #[derive(Clone)]
+#[allow(non_snake_case)]
 pub struct PubKey<G: ProjectiveCurve> {
     pub CX0: G,
     pub X1: G,
 }
 
+#[allow(non_snake_case)]
 impl<G: ProjectiveCurve> FromBytes for PubKey<G> {
     fn read<R: Read>(mut reader: R) -> IoResult<Self> {
         let CX0 = G::read(&mut reader)?;
@@ -93,6 +95,7 @@ impl<G: ProjectiveCurve> ToBytes for Mac<G> {
     }
 }
 
+#[allow(non_snake_case)]
 pub struct MacProof<G: ProjectiveCurve, D: Digest> {
     M_r: G,
     z0: G::ScalarField,
@@ -104,6 +107,7 @@ pub struct MacProof<G: ProjectiveCurve, D: Digest> {
 }
 
 #[derive(Clone)]
+#[allow(non_snake_case)]
 pub struct BlindMacInput<G: ProjectiveCurve> {
     pub D: G,
     pub ct1: G,
@@ -132,6 +136,7 @@ pub struct BlindMacOutput<G: ProjectiveCurve, D: Digest> {
     proof: BlindMacProof<G, D>,
 }
 
+#[allow(non_snake_case)]
 pub struct BlindMacProof<G: ProjectiveCurve, D: Digest> {
     X_b1: G,
     z_x0: G::ScalarField,
@@ -184,6 +189,7 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
     }
 
     // MACs "M" where "M" in G
+    #[allow(non_snake_case)]
     pub fn group_elem_mac<R: Rng>(
         pp: &PublicParams<G>,
         sk: &SecretKey<G>,
@@ -197,7 +203,7 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
     }
 
     pub fn verify_mac(
-        pp: &PublicParams<G>,
+        _pp: &PublicParams<G>,
         sk: &SecretKey<G>,
         m: &G::ScalarField,
         t: &Mac<G>
@@ -206,6 +212,7 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
     }
 
     // MACs "M" where "M = g^m" and "m" is hidden
+    #[allow(non_snake_case)]
     pub fn group_elem_mac_and_prove<R: Rng>(
         pp: &PublicParams<G>,
         sk: &SecretKey<G>,
@@ -266,6 +273,7 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
         Ok((t, proof))
     }
 
+    #[allow(non_snake_case)]
     pub fn verify_mac_proof(
         pp: &PublicParams<G>,
         pk: &PubKey<G>,
@@ -304,6 +312,7 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
         }
     }
 
+    #[allow(non_snake_case)]
     pub fn blind_mac_input<R: Rng>(
         pp: &PublicParams<G>,
         m: &G::ScalarField,
@@ -320,6 +329,7 @@ impl<G: ProjectiveCurve, D: Digest> GGM<G, D> {
         (BlindMacState{delta: delta, r: r, input: input.clone()}, input)
     }
 
+    #[allow(non_snake_case)]
     pub fn blind_mac_eval<R: Rng>(
         pp: &PublicParams<G>,
         sk: &SecretKey<G>,
@@ -469,6 +479,7 @@ mod tests {
     use sha3::Sha3_256;
 
     #[test]
+    #[allow(non_snake_case)]
     fn mac_verify() {
         let mut rng = StdRng::seed_from_u64(0u64);
         type AlgMacG1 = GGM<G1Projective, Sha3_256>;
@@ -482,6 +493,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(non_snake_case)]
     fn mac_proof() {
         let mut rng = StdRng::seed_from_u64(0u64);
         type AlgMacG1 = GGM<G1Projective, Sha3_256>;

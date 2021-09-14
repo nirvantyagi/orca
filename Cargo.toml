@@ -11,7 +11,7 @@ rand = "0.7.3"
 sha3 = "0.8.2"
 
 [dev-dependencies]
-redis = { version = "0.17.0", features = [ "r2d2" ] }
+redis = { version = "0.21.0", features = [ "r2d2" ] }
 rayon = "1.4.0"
 r2d2 = "0.8.9"
 num_cpus = "1.13.0"
