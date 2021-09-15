@@ -46,8 +46,37 @@ It is run as follows and produces the results reported in Figure 5 of [TLMR USEN
 ```bash
 cargo bench --bench microbenchmarks
 ```
-Part of the reported results in Figure 5 involved running the above microbenchmark on a mobile device, for which some additional setup is required.
-TODO: Julia
+Part of the reported results in Figure 5 involved running the above microbenchmark on an Android mobile device, for which some additional setup is required.
+First ensure that the mobile device has USB debugging connected (instructions found [here](https://developer.android.com/studio/debug/dev-options#enable)).
+Connect it to the computer used to run the experiment and run
+```bash
+adb devices
+```
+to ensure it is connected. Then install the cargo extension that enables building a Rust codebase for Android as well as the toolchains to be used:
+```bash
+cargo install cargo-ndk
+rustup target add \
+    aarch64-linux-android \
+    armv7-linux-androideabi \
+    x86_64-linux-android \
+    i686-linux-android
+```
+Download the Android NDK [here](https://developer.android.com/ndk/downloads) appropriate for the platform being used and then set the following environment variable:
+```bash
+export ANDROID_NDK_HOME="/location/of/android-ndk"
+```
+Then build the microbenchmarks codebase with the following:
+```bash
+cargo ndk --platform 21 --target armv7-linux-androideabi  build --bench microbenchmarks --release
+```
+Check that the executable is in the directory `target/armv7-linux-androideabi/release/` and then push the executable to the Android device in directory `/data/local/tmp/mb`:
+```bash
+adb -d push /location/of/executable /data/local/tmp/mb
+```
+Lastly, run the executable:
+```bash
+adb -d shell /data/local/tmp/mb
+```
 
 ### Platform Throughput Benchmark
 
