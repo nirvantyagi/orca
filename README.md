@@ -14,6 +14,9 @@ This repository is organized as a Rust package including three main source files
 * [`benches/microbenchmarks.rs`](benches/microbenchmarks.rs): Microbenchmarks for the cryptographic operations of Orca.
 * [`benches/platform.rs`](benches/platform.rs): Multi-threaded platform macrobenchmark for running Orca.
 
+## Prerequisites
+You will need a machine running Ubuntu. If using AWS EC2, we suggest using Ubuntu Server LTS 20.04 on a t2.micro. **Important**: You will need about 12 GB of storage capacity on your machine. If you are creating an EC2 instance, you will need to increase the volume from the default size. 
+
 ## Installation/Build
 
 The library is easy to compile from source using an older version of the `nightly` toolchain of the Rust compiler.
