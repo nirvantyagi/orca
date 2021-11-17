@@ -15,12 +15,18 @@ This repository is organized as a Rust package including three main source files
 * [`benches/platform.rs`](benches/platform.rs): Multi-threaded platform macrobenchmark for running Orca.
 
 ## Prerequisites
-You will need a machine running Ubuntu. If using AWS EC2, we suggest using Ubuntu Server LTS 20.04 on a t2.micro. **Important**: You will need about 12 GB of storage capacity on your machine. If you are creating an EC2 instance, you will need to increase the volume from the default size. 
+You will need a machine running Ubuntu. If using AWS EC2, we suggest using Ubuntu Server LTS 20.04 on a t2.micro. **Important**: You will need about 12GB of storage capacity on your machine. If you are creating an EC2 instance, you will need to increase the volume from the default size.
 
 ## Installation/Build
 
 The library is easy to compile from source using an older version of the `nightly` toolchain of the Rust compiler.
-Install the Rust toolchain manager `rustup` by following the instructions [here](https://rustup.rs/).
+Install the Rust toolchain manager `rustup` by following the instructions [here](https://rustup.rs/). **Note**: Do not install using `apt install cargo`.
+
+If you run into compilation errors for `libc`, then you can run the following:
+```
+sudo apt-get update
+sudo apt install build-essential
+```
 
 Clone the repository:
 ```bash
@@ -64,7 +70,7 @@ rustup target add \
     x86_64-linux-android \
     i686-linux-android
 ```
-Download the Android NDK [here](https://developer.android.com/ndk/downloads) appropriate for the platform being used and then set the following environment variable:
+Download Android NDK version r22b [here](https://github.com/android/ndk/wiki/Unsupported-Downloads) and then set the following environment variable:
 ```bash
 export ANDROID_NDK_HOME="/location/of/android-ndk"
 ```
@@ -72,7 +78,8 @@ Then build the microbenchmarks codebase with the following:
 ```bash
 cargo ndk --platform 21 --target armv7-linux-androideabi  build --bench microbenchmarks --release
 ```
-Check that the executable is in the directory `target/armv7-linux-androideabi/release/` and then push the executable to the Android device in directory `/data/local/tmp/mb`:
+
+The resulting executable should be called `microbenchmarks-HASH`, where `HASH` is some hash value. It should be located in the directory `orca/target/armv7-linux-androideabi/release/deps`. Check to make sure it is there and then push the executable to the Android device in directory `/data/local/tmp/mb`:
 ```bash
 adb -d push /location/of/executable /data/local/tmp/mb
 ```
