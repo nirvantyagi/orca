@@ -5,6 +5,9 @@ _Rust implementation of the Orca sender blocklisting protocol_
 **USENIX Security 2022:**
 Nirvan Tyagi, Julia Len, Ian Miers, Thomas Ristenpart. _Orca: Blocklisting in Sender-Anonymous Messaging_. USENIX Security 2022.
 
+**ePrint (full version):**
+Nirvan Tyagi, Julia Len, Ian Miers, Thomas Ristenpart. _Orca: Blocklisting in Sender-Anonymous Messaging_. Cryptology ePrint Archive, Report 2021/1380. https://eprint.iacr.org/2021/1380. 2021.
+
 ## Overview
 
 This repository is organized as a Rust package including three main source files and two benchmarks.
@@ -14,19 +17,10 @@ This repository is organized as a Rust package including three main source files
 * [`benches/microbenchmarks.rs`](benches/microbenchmarks.rs): Microbenchmarks for the cryptographic operations of Orca.
 * [`benches/platform.rs`](benches/platform.rs): Multi-threaded platform macrobenchmark for running Orca.
 
-## Prerequisites
-You will need a machine running Ubuntu. If using AWS EC2, we suggest using Ubuntu Server LTS 20.04 on a t2.micro. **Important**: You will need about 12GB of storage capacity on your machine. If you are creating an EC2 instance, you will need to increase the volume from the default size.
-
 ## Installation/Build
 
 The library is easy to compile from source using an older version of the `nightly` toolchain of the Rust compiler.
-Install the Rust toolchain manager `rustup` by following the instructions [here](https://rustup.rs/). **Note**: Do not install using `apt install cargo`.
-
-If you run into compilation errors for `libc`, then you can run the following:
-```
-sudo apt-get update
-sudo apt install build-essential
-```
+Install the Rust toolchain manager `rustup` by following the instructions [here](https://rustup.rs/).
 
 Clone the repository:
 ```bash
@@ -37,6 +31,12 @@ cd orca/
 Build using `cargo`:
 ```bash
 cargo build
+```
+
+If running on a fresh Ubuntu machine, you may need to install additional dependencies for `libc`:
+```bash
+sudo apt-get update
+sudo apt install build-essential
 ```
 
 ## Tests and Benchmarks
